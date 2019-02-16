@@ -1,7 +1,9 @@
 [package]
-name = "on-line-codes"
-version = "0.1.0"
 authors = ["David Fisher <ddf1991@gmail.com>"]
 edition = "2018"
-
+name = "on-line-codes"
+version = "0.1.0"
 [dependencies]
+rand = "*"
+rand_core = "*"
+rand_xoshiro = "*"
