@@ -68,7 +68,7 @@ fn get_degree_distibution() -> WeightedIndex<f64> {
     // See section 3.2 of the Maymounkov-Mazières paper.
     let f = ((f64::ln(epsilon * epsilon / 4.0)) / f64::ln(1.0 - epsilon / 2.0)).ceil() as usize;
     let mut p = Vec::with_capacity(f);
-    let p1 = 1.0 - ((1.0 + 1.0 / f as f64) / 1.0 + epsilon);
+    let p1 = 1.0 - ((1.0 + 1.0 / f as f64) / (1.0 + epsilon));
     p.push(p1);
     // Extracted unchanging constant from p_i's.
     let c = (1.0 - p1) * f as f64 / (f - 1) as f64;
@@ -121,7 +121,7 @@ fn get_aux_block_associations(
     let mut rng = Xoshiro256StarStar::seed_from_u64(seed);
     for i in 0..num_blocks {
         for aux_index in sample_without_replacement(&mut rng, num_auxiliary_blocks, q) {
-            mapping.entry(aux_index).or_default().push(i);
+            mapping.entry(aux_index + num_blocks).or_default().push(i);
         }
     }
     mapping
