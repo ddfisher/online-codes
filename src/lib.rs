@@ -21,16 +21,23 @@ fn sample_without_replacement(
     high_exclusive: usize,
     num: usize,
 ) -> Vec<usize> {
+    if high_exclusive <= num {
+        // We can't return as many unique samples as requested -- return as many as possible.
+        return (0..high_exclusive).collect();
+    }
+
     // TODO: this might have bad behavior when called by inner_encode with a high degree
     let mut selected = HashSet::with_capacity(num);
     let distribution = Uniform::new(0, high_exclusive);
-    let mut sample = distribution.sample(rng);
-    while selected.contains(&sample) {
-        sample = distribution.sample(rng);
+    for _ in 0..num {
+        let mut sample = distribution.sample(rng);
+        while selected.contains(&sample) {
+            sample = distribution.sample(rng);
+        }
+        selected.insert(sample);
     }
-    selected.insert(sample);
 
-    selected.into_iter().collect()
+    return selected.into_iter().collect();
 }
 
 // TODO: optimize
@@ -139,9 +146,11 @@ impl<'a> Iterator for BlockIter<'a> {
     fn next(&mut self) -> Option<Vec<u8>> {
         let num_blocks = self.data.len() / self.block_size;
         let mut check_block = vec![0; self.block_size];
-        for block_index in
-            get_associated_blocks(self.block_id, &self.degree_distribution, num_blocks)
-        {
+        for block_index in dbg!(get_associated_blocks(
+            self.block_id,
+            &self.degree_distribution,
+            num_blocks
+        )) {
             xor_block(
                 &mut check_block,
                 &self.data[block_index * self.block_size..(block_index + 1) * self.block_size],
@@ -206,6 +215,10 @@ pub fn decode<'a>(
             if let Some(target_block_id) =
                 block_to_decode(associated_block_ids.as_slice(), &block_decoded)
             {
+                eprintln!(
+                    "using check block #{} to decode block #{}: {:?}",
+                    i, target_block_id, &associated_block_ids
+                );
                 xor_block(
                     &mut data[target_block_id * block_size..],
                     encoded_block,
@@ -219,11 +232,13 @@ pub fn decode<'a>(
                         }
                     }
                 }
+                eprintln!("decoded block #{}", target_block_id);
                 block_decoded[target_block_id] = true;
                 progress_made = true;
             }
         }
         if !progress_made {
+            dbg!(block_decoded);
             panic!("could not complete decoding!")
         }
     }
