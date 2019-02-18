@@ -95,21 +95,21 @@ fn add_aux_associations(
     associated_block_ids: Vec<usize>,
     aux_associations: &HashMap<usize, Vec<usize>>,
 ) -> Vec<usize> {
-    let assoc_set: HashSet<usize> = associated_block_ids.into_iter().collect();
-    let mut change_set = HashSet::new();
-    for assoc_id in assoc_set.iter() {
+    let mut mapped_ids = HashSet::new();
+    for assoc_id in associated_block_ids.iter() {
         if let Some(block_ids) = aux_associations.get(assoc_id) {
             for block_id in block_ids {
-                if !change_set.remove(block_id) {
-                    change_set.insert(*block_id);
+                if !mapped_ids.remove(block_id) {
+                    mapped_ids.insert(*block_id);
                 }
+            }
+        } else {
+            if !mapped_ids.remove(assoc_id) {
+                mapped_ids.insert(*assoc_id);
             }
         }
     }
-    assoc_set
-        .symmetric_difference(&change_set)
-        .map(|x| *x)
-        .collect()
+    mapped_ids.into_iter().collect()
 }
 
 fn get_aux_block_associations(
@@ -196,7 +196,11 @@ pub fn decode<'a>(
         let mut progress_made = false;
         for (i, encoded_block) in encoded_data.chunks_exact(block_size).enumerate() {
             let associated_block_ids = add_aux_associations(
-                get_associated_blocks(i as u64, &degree_distribution, num_blocks),
+                get_associated_blocks(
+                    i as u64,
+                    &degree_distribution,
+                    num_blocks + num_auxiliary_blocks,
+                ),
                 &aux_block_associations,
             );
             if let Some(target_block_id) =
