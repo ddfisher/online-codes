@@ -41,7 +41,7 @@ impl OnlineCoder {
         let mut aux_data = vec![0; num_aux_blocks * block_size];
         let mut rng = Xoshiro256StarStar::seed_from_u64(seed);
         for block in data.chunks_exact(block_size) {
-            for aux_index in sample_without_replacement(&mut rng, num_aux_blocks, self.q) {
+            for aux_index in sample_with_exclusive_repeats(&mut rng, num_aux_blocks, self.q) {
                 xor_block(&mut aux_data[aux_index * block_size..], block, block_size);
             }
         }
@@ -75,18 +75,15 @@ impl OnlineCoder {
         let aux_block_associations =
             self.get_aux_block_associations(seed, num_blocks, num_aux_blocks);
         let degree_distribution = make_degree_distribution(self.epsilon);
-        let mut data = vec![0; num_blocks * block_size];
-        let mut block_decoded = vec![false; num_blocks];
+        let mut data = vec![0; (num_blocks + num_aux_blocks) * block_size]; // includes aux blocks
+        let mut block_decoded = vec![false; num_blocks + num_aux_blocks];
         while !block_decoded.iter().all(|x| *x) {
             let mut progress_made = false;
             for (i, encoded_block) in encoded_data.chunks_exact(block_size).enumerate() {
-                let associated_block_ids = add_aux_associations(
-                    get_associated_blocks(
-                        i as u64,
-                        &degree_distribution,
-                        num_blocks + num_aux_blocks,
-                    ),
-                    &aux_block_associations,
+                let associated_block_ids = get_associated_blocks(
+                    i as u64,
+                    &degree_distribution,
+                    num_blocks + num_aux_blocks,
                 );
                 if let Some(target_block_id) =
                     block_to_decode(associated_block_ids.as_slice(), &block_decoded)
@@ -108,17 +105,49 @@ impl OnlineCoder {
                             }
                         }
                     }
-                    eprintln!("decoded block #{}", target_block_id);
+                    block_decoded[target_block_id] = true;
+                    progress_made = true;
+                }
+            }
+            let (s_data, aux_data) = data.split_at_mut(num_blocks * block_size);
+            for (i, aux_block) in aux_data.chunks_exact(block_size).enumerate() {
+                let aux_id = i + num_blocks;
+                if !block_decoded[aux_id] {
+                    continue;
+                }
+
+                let associated_block_ids = aux_block_associations.get(&aux_id).unwrap();
+                if let Some(target_block_id) =
+                    block_to_decode(associated_block_ids.as_slice(), &block_decoded)
+                {
+                    eprintln!(
+                        "using AUX block  #{} to decode block #{}: {:?}",
+                        i, target_block_id, &associated_block_ids
+                    );
+                    xor_block(
+                        &mut s_data[target_block_id * block_size..],
+                        aux_block,
+                        block_size,
+                    );
+                    for associated_block_id in associated_block_ids {
+                        if *associated_block_id != target_block_id {
+                            for i in 0..block_size {
+                                s_data[target_block_id * block_size + i] ^=
+                                    s_data[associated_block_id * block_size + i];
+                            }
+                        }
+                    }
                     block_decoded[target_block_id] = true;
                     progress_made = true;
                 }
             }
             if !progress_made {
-                dbg!(block_decoded);
+                let _: usize = dbg!(block_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
                 panic!("could not complete decoding!")
             }
         }
 
+        data.truncate(block_size * num_blocks);
         data
     }
 
@@ -131,7 +160,7 @@ impl OnlineCoder {
         let mut mapping: HashMap<usize, Vec<usize>> = HashMap::new();
         let mut rng = Xoshiro256StarStar::seed_from_u64(seed);
         for i in 0..num_blocks {
-            for aux_index in sample_without_replacement(&mut rng, num_auxiliary_blocks, self.q) {
+            for aux_index in sample_with_exclusive_repeats(&mut rng, num_auxiliary_blocks, self.q) {
                 mapping.entry(aux_index + num_blocks).or_default().push(i);
             }
         }
@@ -153,26 +182,18 @@ fn make_degree_distribution(epsilon: f64) -> WeightedIndex<f64> {
     WeightedIndex::new(&p).expect("serious probability calculation error")
 }
 
-// TODO: optimize
-fn sample_without_replacement(
+fn sample_with_exclusive_repeats(
     rng: &mut Xoshiro256StarStar,
     high_exclusive: usize,
     num: usize,
 ) -> Vec<usize> {
-    if high_exclusive <= num {
-        // We can't return as many unique samples as requested -- return as many as possible.
-        return (0..high_exclusive).collect();
-    }
-
-    // TODO: this might have bad behavior when called by inner_encode with a high degree
     let mut selected = HashSet::with_capacity(num);
     let distribution = Uniform::new(0, high_exclusive);
     for _ in 0..num {
-        let mut sample = distribution.sample(rng);
-        while selected.contains(&sample) {
-            sample = distribution.sample(rng);
+        let sample = distribution.sample(rng);
+        if !selected.insert(sample) {
+            selected.remove(&sample);
         }
-        selected.insert(sample);
     }
 
     return selected.into_iter().collect();
@@ -234,29 +255,7 @@ fn get_associated_blocks(
 ) -> Vec<usize> {
     let mut rng = Xoshiro256StarStar::seed_from_u64(block_id);
     let degree = 1 + degree_distribution.sample(&mut rng);
-    sample_without_replacement(&mut rng, num_blocks, degree)
-}
-
-// TODO: yikes this is not efficient
-fn add_aux_associations(
-    associated_block_ids: Vec<usize>,
-    aux_associations: &HashMap<usize, Vec<usize>>,
-) -> Vec<usize> {
-    let mut mapped_ids = HashSet::new();
-    for assoc_id in associated_block_ids.iter() {
-        if let Some(block_ids) = aux_associations.get(assoc_id) {
-            for block_id in block_ids {
-                if !mapped_ids.remove(block_id) {
-                    mapped_ids.insert(*block_id);
-                }
-            }
-        } else {
-            if !mapped_ids.remove(assoc_id) {
-                mapped_ids.insert(*assoc_id);
-            }
-        }
-    }
-    mapped_ids.into_iter().collect()
+    sample_with_exclusive_repeats(&mut rng, num_blocks, degree)
 }
 
 fn block_to_decode(associated_block_ids: &[usize], block_decoded: &[bool]) -> Option<usize> {
