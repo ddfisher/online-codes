@@ -1,3 +1,4 @@
+use on_line_codes::OnlineCoder;
 fn main() {
     let message =
         "Gormenghast, that is the main massing of the original stone, taken by itself \
@@ -13,21 +14,23 @@ fn main() {
          Flints. This tower, patched uneavenly with black ivy, arose like a mutilated \
          finger from among the fists of knuckled masonry and pointed blasphemously at heaven. \
          At night the owls made of it an echoing throat; by day it stood voiceless and cast \
-         its long shadow.";
+         its long shadow.\n";
     // let message = "this is a test";
     // let message = "01";
-    let mut data: Vec<u8> = message.as_bytes().iter().map(|x| *x).collect();
-    dbg!(&data);
-    let seed = 0;
+    let data: Vec<u8> = message.repeat(1).as_bytes().iter().map(|x| *x).collect();
+    // let data: Vec<u8> = (0..100).collect();
+    // dbg!(&data);
+    let coder = OnlineCoder::new();
+    let seed = 0xDEADBEEF;
     let block_size = 1;
     let num_blocks = data.len();
     dbg!(num_blocks);
     let mut encoded_data: Vec<u8> = Vec::new();
-    for mut chunk in on_line_codes::encode(&mut data, block_size, seed).take(num_blocks + 500) {
+    for mut chunk in coder.encode(&data, block_size, seed).take(num_blocks + 600) {
         encoded_data.append(&mut chunk);
     }
-    let decoded_message = on_line_codes::decode(&encoded_data, num_blocks, block_size, seed);
-    dbg!(&decoded_message);
+    let decoded_message = coder.decode(&encoded_data, num_blocks, block_size, seed);
+    // let _: Vec<(usize, u8)> = dbg!(decoded_message.into_iter().enumerate().collect());
 
     println!("{:?}", std::str::from_utf8(&decoded_message));
 }

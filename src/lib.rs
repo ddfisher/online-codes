@@ -1,5 +1,5 @@
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
-use rand_core::{RngCore, SeedableRng};
+use rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{HashMap, HashSet};
 
@@ -11,9 +11,147 @@ mod tests {
     }
 }
 
-// TODO: allow user to change these
-const q: usize = 3;
-const epsilon: f64 = 0.01;
+pub struct OnlineCoder {
+    epsilon: f64,
+    q: usize,
+}
+
+impl OnlineCoder {
+    pub fn new() -> OnlineCoder {
+        Self::with_parameters(0.01, 3)
+    }
+
+    pub fn with_parameters(epsilon: f64, q: usize) -> OnlineCoder {
+        OnlineCoder { epsilon, q }
+    }
+
+    pub fn encode<'a>(&self, data: &'a [u8], block_size: usize, seed: u64) -> BlockIter<'a> {
+        assert!(data.len() % block_size == 0);
+        let aux_data = self.outer_encode(data, block_size, seed);
+        self.inner_encode(data, aux_data, block_size)
+    }
+
+    fn num_aux_blocks(&self, num_blocks: usize) -> usize {
+        (0.55f64 * self.q as f64 * self.epsilon * num_blocks as f64).ceil() as usize
+    }
+
+    fn outer_encode(&self, data: &[u8], block_size: usize, seed: u64) -> Vec<u8> {
+        let num_blocks = data.len() / block_size;
+        let num_aux_blocks = self.num_aux_blocks(num_blocks);
+        let mut aux_data = vec![0; num_aux_blocks * block_size];
+        let mut rng = Xoshiro256StarStar::seed_from_u64(seed);
+        for block in data.chunks_exact(block_size) {
+            for aux_index in sample_without_replacement(&mut rng, num_aux_blocks, self.q) {
+                xor_block(&mut aux_data[aux_index * block_size..], block, block_size);
+            }
+        }
+        aux_data
+    }
+
+    fn inner_encode<'a>(
+        &self,
+        data: &'a [u8],
+        aux_data: Vec<u8>,
+        block_size: usize,
+    ) -> BlockIter<'a> {
+        BlockIter {
+            data,
+            aux_data,
+            block_size,
+            degree_distribution: make_degree_distribution(self.epsilon),
+            block_id: 0,
+        }
+    }
+
+    // TODO: implement in a vaguely optimized way
+    pub fn decode<'a>(
+        &self,
+        encoded_data: &'a Vec<u8>,
+        num_blocks: usize,
+        block_size: usize,
+        seed: u64,
+    ) -> Vec<u8> {
+        let num_aux_blocks = self.num_aux_blocks(num_blocks);
+        let aux_block_associations =
+            self.get_aux_block_associations(seed, num_blocks, num_aux_blocks);
+        let degree_distribution = make_degree_distribution(self.epsilon);
+        let mut data = vec![0; num_blocks * block_size];
+        let mut block_decoded = vec![false; num_blocks];
+        while !block_decoded.iter().all(|x| *x) {
+            let mut progress_made = false;
+            for (i, encoded_block) in encoded_data.chunks_exact(block_size).enumerate() {
+                let associated_block_ids = add_aux_associations(
+                    get_associated_blocks(
+                        i as u64,
+                        &degree_distribution,
+                        num_blocks + num_aux_blocks,
+                    ),
+                    &aux_block_associations,
+                );
+                if let Some(target_block_id) =
+                    block_to_decode(associated_block_ids.as_slice(), &block_decoded)
+                {
+                    eprintln!(
+                        "using check block #{} to decode block #{}: {:?}",
+                        i, target_block_id, &associated_block_ids
+                    );
+                    xor_block(
+                        &mut data[target_block_id * block_size..],
+                        encoded_block,
+                        block_size,
+                    );
+                    for associated_block_id in associated_block_ids {
+                        if associated_block_id != target_block_id {
+                            for i in 0..block_size {
+                                data[target_block_id * block_size + i] ^=
+                                    data[associated_block_id * block_size + i];
+                            }
+                        }
+                    }
+                    eprintln!("decoded block #{}", target_block_id);
+                    block_decoded[target_block_id] = true;
+                    progress_made = true;
+                }
+            }
+            if !progress_made {
+                dbg!(block_decoded);
+                panic!("could not complete decoding!")
+            }
+        }
+
+        data
+    }
+
+    fn get_aux_block_associations(
+        &self,
+        seed: u64,
+        num_blocks: usize,
+        num_auxiliary_blocks: usize,
+    ) -> HashMap<usize, Vec<usize>> {
+        let mut mapping: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut rng = Xoshiro256StarStar::seed_from_u64(seed);
+        for i in 0..num_blocks {
+            for aux_index in sample_without_replacement(&mut rng, num_auxiliary_blocks, self.q) {
+                mapping.entry(aux_index + num_blocks).or_default().push(i);
+            }
+        }
+        mapping
+    }
+}
+
+fn make_degree_distribution(epsilon: f64) -> WeightedIndex<f64> {
+    // See section 3.2 of the Maymounkov-Mazières paper.
+    let f = ((f64::ln(epsilon * epsilon / 4.0)) / f64::ln(1.0 - epsilon / 2.0)).ceil() as usize;
+    let mut p = Vec::with_capacity(f);
+    let p1 = 1.0 - ((1.0 + 1.0 / f as f64) / (1.0 + epsilon));
+    p.push(p1);
+    // Extracted unchanging constant from p_i's.
+    let c = (1.0 - p1) * f as f64 / (f - 1) as f64;
+    for i in 2..=f {
+        p.push(c / (i * (i - 1)) as f64);
+    }
+    WeightedIndex::new(&p).expect("serious probability calculation error")
+}
 
 // TODO: optimize
 fn sample_without_replacement(
@@ -47,42 +185,44 @@ fn xor_block(dest: &mut [u8], src: &[u8], block_size: usize) {
     }
 }
 
-pub fn encode<'a>(data: &'a mut Vec<u8>, block_size: usize, seed: u64) -> BlockIter<'a> {
-    outer_encode(data, block_size, seed);
-    inner_encode(data, block_size)
+pub struct BlockIter<'a> {
+    data: &'a [u8],
+    aux_data: Vec<u8>,
+    block_size: usize,
+    degree_distribution: WeightedIndex<f64>,
+    block_id: u64, // TODO: this should be a larger size type
 }
 
-fn outer_encode(data: &mut Vec<u8>, block_size: usize, seed: u64) {
-    assert!(data.len() % block_size == 0);
-    let num_blocks = data.len() / block_size;
-    let num_auxiliary_blocks = (0.55f64 * q as f64 * epsilon * num_blocks as f64).ceil() as usize;
-    data.resize((num_blocks + num_auxiliary_blocks) * block_size, 0u8);
-    let (blocks, aux_blocks) = data.split_at_mut(num_blocks * block_size);
-    let mut rng = Xoshiro256StarStar::seed_from_u64(seed);
-    for block in blocks.chunks_exact(block_size) {
-        for aux_index in sample_without_replacement(&mut rng, num_auxiliary_blocks, q) {
-            xor_block(
-                &mut aux_blocks[aux_index * block_size..(aux_index + 1) * block_size],
-                block,
-                block_size,
-            );
+impl<'a> Iterator for BlockIter<'a> {
+    type Item = Vec<u8>;
+    fn next(&mut self) -> Option<Vec<u8>> {
+        let num_blocks = self.data.len() / self.block_size;
+        let num_aux_blocks = self.aux_data.len() / self.block_size;
+        let mut check_block = vec![0; self.block_size];
+        for block_index in get_associated_blocks(
+            self.block_id,
+            &self.degree_distribution,
+            num_blocks + num_aux_blocks,
+        ) {
+            if block_index < num_blocks {
+                xor_block(
+                    &mut check_block,
+                    &self.data[block_index * self.block_size..],
+                    self.block_size,
+                );
+            } else {
+                // Aux block.
+                xor_block(
+                    &mut check_block,
+                    &self.aux_data[(block_index - num_blocks) * self.block_size..],
+                    self.block_size,
+                );
+            }
         }
-    }
-}
 
-fn get_degree_distibution() -> WeightedIndex<f64> {
-    // TODO: only compute this once
-    // See section 3.2 of the Maymounkov-Mazières paper.
-    let f = ((f64::ln(epsilon * epsilon / 4.0)) / f64::ln(1.0 - epsilon / 2.0)).ceil() as usize;
-    let mut p = Vec::with_capacity(f);
-    let p1 = 1.0 - ((1.0 + 1.0 / f as f64) / (1.0 + epsilon));
-    p.push(p1);
-    // Extracted unchanging constant from p_i's.
-    let c = (1.0 - p1) * f as f64 / (f - 1) as f64;
-    for i in 2..=f {
-        p.push(c / (i * (i - 1)) as f64);
+        self.block_id += 1;
+        Some(check_block)
     }
-    WeightedIndex::new(&p).expect("serious probability calculation error")
 }
 
 // TODO: return an iterator instead
@@ -119,61 +259,6 @@ fn add_aux_associations(
     mapped_ids.into_iter().collect()
 }
 
-fn get_aux_block_associations(
-    seed: u64,
-    num_blocks: usize,
-    num_auxiliary_blocks: usize,
-) -> HashMap<usize, Vec<usize>> {
-    let mut mapping: HashMap<usize, Vec<usize>> = HashMap::new();
-    let mut rng = Xoshiro256StarStar::seed_from_u64(seed);
-    for i in 0..num_blocks {
-        for aux_index in sample_without_replacement(&mut rng, num_auxiliary_blocks, q) {
-            mapping.entry(aux_index + num_blocks).or_default().push(i);
-        }
-    }
-    mapping
-}
-
-pub struct BlockIter<'a> {
-    data: &'a Vec<u8>,
-    block_size: usize,
-    degree_distribution: WeightedIndex<f64>,
-    block_id: u64, // TODO: this should be a larger size type
-}
-
-impl<'a> Iterator for BlockIter<'a> {
-    type Item = Vec<u8>;
-    fn next(&mut self) -> Option<Vec<u8>> {
-        let num_blocks = self.data.len() / self.block_size;
-        let mut check_block = vec![0; self.block_size];
-        for block_index in dbg!(get_associated_blocks(
-            self.block_id,
-            &self.degree_distribution,
-            num_blocks
-        )) {
-            xor_block(
-                &mut check_block,
-                &self.data[block_index * self.block_size..(block_index + 1) * self.block_size],
-                self.block_size,
-            );
-        }
-
-        self.block_id += 1;
-        Some(check_block)
-    }
-}
-
-fn inner_encode<'a>(data: &'a mut Vec<u8>, block_size: usize) -> BlockIter<'a> {
-    assert!(data.len() % block_size == 0);
-
-    BlockIter {
-        data,
-        block_size,
-        degree_distribution: get_degree_distibution(),
-        block_id: 0,
-    }
-}
-
 fn block_to_decode(associated_block_ids: &[usize], block_decoded: &[bool]) -> Option<usize> {
     // If exactly one of the associated blocks is not yet decoded, return the id of that block.
     let mut to_decode = None;
@@ -187,61 +272,4 @@ fn block_to_decode(associated_block_ids: &[usize], block_decoded: &[bool]) -> Op
     }
 
     return to_decode;
-}
-
-// TODO: implement in a vaguely optimized way
-pub fn decode<'a>(
-    encoded_data: &'a Vec<u8>,
-    num_blocks: usize,
-    block_size: usize,
-    seed: u64,
-) -> Vec<u8> {
-    let num_auxiliary_blocks = (0.55f64 * q as f64 * epsilon * num_blocks as f64).ceil() as usize;
-    let aux_block_associations = get_aux_block_associations(seed, num_blocks, num_auxiliary_blocks);
-    let mut data = vec![0; num_blocks * block_size];
-    let mut block_decoded = vec![false; num_blocks];
-    let degree_distribution = get_degree_distibution();
-    while !block_decoded.iter().all(|x| *x) {
-        let mut progress_made = false;
-        for (i, encoded_block) in encoded_data.chunks_exact(block_size).enumerate() {
-            let associated_block_ids = add_aux_associations(
-                get_associated_blocks(
-                    i as u64,
-                    &degree_distribution,
-                    num_blocks + num_auxiliary_blocks,
-                ),
-                &aux_block_associations,
-            );
-            if let Some(target_block_id) =
-                block_to_decode(associated_block_ids.as_slice(), &block_decoded)
-            {
-                eprintln!(
-                    "using check block #{} to decode block #{}: {:?}",
-                    i, target_block_id, &associated_block_ids
-                );
-                xor_block(
-                    &mut data[target_block_id * block_size..],
-                    encoded_block,
-                    block_size,
-                );
-                for associated_block_id in associated_block_ids {
-                    if associated_block_id != target_block_id {
-                        for i in 0..block_size {
-                            data[target_block_id * block_size + i] ^=
-                                data[associated_block_id * block_size + i];
-                        }
-                    }
-                }
-                eprintln!("decoded block #{}", target_block_id);
-                block_decoded[target_block_id] = true;
-                progress_made = true;
-            }
-        }
-        if !progress_made {
-            dbg!(block_decoded);
-            panic!("could not complete decoding!")
-        }
-    }
-
-    data
 }
