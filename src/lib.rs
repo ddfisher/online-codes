@@ -80,11 +80,15 @@ impl OnlineCoder {
         while !blocks_decoded.iter().all(|x| *x) {
             let mut progress_made = false;
             for (i, check_block) in encoded_data.chunks_exact(block_size).enumerate() {
-                if let Some(decoded_block_id) = decode_check_block(
+                let associated_block_ids = get_associated_blocks(
                     i as u64,
-                    check_block,
-                    &mut augmented_data,
                     &degree_distribution,
+                    num_blocks + num_aux_blocks,
+                );
+                if let Some(decoded_block_id) = decode_check_block(
+                    check_block,
+                    &associated_block_ids,
+                    &mut augmented_data,
                     block_size,
                     &blocks_decoded,
                 ) {
@@ -93,10 +97,15 @@ impl OnlineCoder {
                 }
             }
             for aux_block_id in num_blocks..(num_blocks + num_aux_blocks) {
+                if !blocks_decoded[aux_block_id] {
+                    continue;
+                }
+
+                let associated_block_ids = aux_block_associations.get(&aux_block_id).unwrap();
                 if let Some(decoded_block_id) = decode_aux_block(
                     aux_block_id,
+                    &associated_block_ids,
                     &mut augmented_data,
-                    &aux_block_associations,
                     block_size,
                     &blocks_decoded,
                 ) {
@@ -132,19 +141,13 @@ impl OnlineCoder {
 }
 
 fn decode_check_block(
-    check_block_id: u64,
     check_block: &[u8],
+    associated_block_ids: &[usize],
     augmented_data: &mut [u8],
-    degree_distribution: &WeightedIndex<f64>,
     block_size: usize,
     blocks_decoded: &[bool],
 ) -> Option<usize> {
-    let associated_block_ids = get_associated_blocks(
-        check_block_id,
-        degree_distribution,
-        augmented_data.len() / block_size,
-    );
-    block_to_decode(&associated_block_ids, blocks_decoded).map(|target_block_id| {
+    block_to_decode(associated_block_ids, blocks_decoded).map(|target_block_id| {
         // eprintln!(
         //     "using check block #{} to decode block #{}: {:?}",
         //     i, target_block_id, &associated_block_ids
@@ -156,7 +159,7 @@ fn decode_check_block(
         );
         xor_associated_blocks(
             target_block_id,
-            &associated_block_ids,
+            associated_block_ids,
             augmented_data,
             block_size,
         );
@@ -166,8 +169,8 @@ fn decode_check_block(
 
 fn decode_aux_block(
     aux_block_id: usize,
+    associated_block_ids: &[usize],
     augmented_data: &mut [u8],
-    aux_block_associations: &HashMap<usize, Vec<usize>>,
     block_size: usize,
     blocks_decoded: &[bool],
 ) -> Option<usize> {
@@ -175,24 +178,19 @@ fn decode_aux_block(
     //     "using AUX block  #{} to decode block #{}: {:?}",
     //     i, target_block_id, &associated_block_ids
     // );
-    if !blocks_decoded[aux_block_id] {
-        None
-    } else {
-        let associated_block_ids = aux_block_associations.get(&aux_block_id).unwrap();
-        block_to_decode(associated_block_ids, blocks_decoded).map(|target_block_id| {
-            for i in 0..block_size {
-                augmented_data[target_block_id * block_size + i] ^=
-                    augmented_data[aux_block_id * block_size + i];
-            }
-            xor_associated_blocks(
-                target_block_id,
-                associated_block_ids,
-                augmented_data,
-                block_size,
-            );
-            target_block_id
-        })
-    }
+    block_to_decode(associated_block_ids, blocks_decoded).map(|target_block_id| {
+        for i in 0..block_size {
+            augmented_data[target_block_id * block_size + i] ^=
+                augmented_data[aux_block_id * block_size + i];
+        }
+        xor_associated_blocks(
+            target_block_id,
+            associated_block_ids,
+            augmented_data,
+            block_size,
+        );
+        target_block_id
+    })
 }
 
 fn xor_associated_blocks(
