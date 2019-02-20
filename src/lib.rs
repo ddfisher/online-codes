@@ -11,6 +11,12 @@ mod tests {
     }
 }
 
+enum UndecodedDegree {
+    Zero,
+    One(usize),  // id of single block which hasn't yet been decoded
+    Many(usize), // number of blocks that haven't yet been decoded
+}
+
 pub struct OnlineCoder {
     epsilon: f64,
     q: usize,
@@ -77,50 +83,104 @@ impl OnlineCoder {
         let degree_distribution = make_degree_distribution(self.epsilon);
         let mut augmented_data = vec![0; (num_blocks + num_aux_blocks) * block_size]; // includes aux blocks
         let mut blocks_decoded = vec![false; num_blocks + num_aux_blocks];
-        while !blocks_decoded.iter().all(|x| *x) {
-            let mut progress_made = false;
-            for (i, check_block) in encoded_data.chunks_exact(block_size).enumerate() {
-                let associated_block_ids = get_associated_blocks(
-                    i as u64,
-                    &degree_distribution,
-                    num_blocks + num_aux_blocks,
-                );
-                if let Some(decoded_block_id) = decode_check_block(
-                    check_block,
-                    &associated_block_ids,
-                    &mut augmented_data,
-                    block_size,
-                    &blocks_decoded,
-                ) {
-                    blocks_decoded[decoded_block_id] = true;
-                    progress_made = true;
-                }
-            }
-            for aux_block_id in num_blocks..(num_blocks + num_aux_blocks) {
-                if !blocks_decoded[aux_block_id] {
-                    continue;
-                }
+        let mut num_undecoded_data_blocks = num_blocks;
+        let mut unused_check_blocks: HashMap<u64, (usize, &[u8])> = HashMap::new();
+        let mut block_dependencies: HashMap<usize, Vec<u64>> = HashMap::new();
+        let mut decode_stack: Vec<(u64, &[u8])> = Vec::new();
 
-                let associated_block_ids = aux_block_associations.get(&aux_block_id).unwrap();
-                if let Some(decoded_block_id) = decode_aux_block(
-                    aux_block_id,
-                    &associated_block_ids,
-                    &mut augmented_data,
-                    block_size,
-                    &blocks_decoded,
-                ) {
-                    blocks_decoded[decoded_block_id] = true;
-                    progress_made = true;
+        for (i, check_block) in encoded_data.chunks_exact(block_size).enumerate() {
+            decode_stack.push((i as u64, check_block));
+        }
+        while let Some((check_block_id, check_block)) = decode_stack.pop() {
+            let associated_block_ids = get_associated_blocks(
+                check_block_id,
+                &degree_distribution,
+                num_blocks + num_aux_blocks,
+            );
+            match undecoded_degree(&associated_block_ids, &blocks_decoded) {
+                UndecodedDegree::Zero => { /* This block has already been decoded. */ }
+                UndecodedDegree::One(target_block_id) => {
+                    decode_from_check_block(
+                        target_block_id,
+                        check_block,
+                        &associated_block_ids,
+                        &mut augmented_data,
+                        block_size,
+                    );
+                    blocks_decoded[target_block_id] = true;
+                    if target_block_id < num_blocks {
+                        num_undecoded_data_blocks -= 1;
+                    }
+                    block_dependencies
+                        .remove(&target_block_id)
+                        .map(|dependencies| {
+                            for depending_block_id in dependencies {
+                                if let Some((remaining_degree, _)) =
+                                    &mut unused_check_blocks.get_mut(&depending_block_id)
+                                {
+                                    *remaining_degree -= 1;
+                                    if *remaining_degree == 1 {
+                                        decode_stack.push((
+                                            depending_block_id,
+                                            unused_check_blocks
+                                                .remove(&depending_block_id)
+                                                .unwrap()
+                                                .1, //TODO: use entry
+                                        ));
+                                    }
+                                }
+                            }
+                        });
                 }
-            }
-            if !progress_made {
-                let _: usize = dbg!(blocks_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
-                panic!("could not complete decoding!")
+                UndecodedDegree::Many(degree) => {
+                    unused_check_blocks.insert(check_block_id, (degree, check_block));
+                    for associated_block_id in associated_block_ids {
+                        block_dependencies
+                            .entry(associated_block_id)
+                            .or_default()
+                            .push(check_block_id) // TODO: consider switching to storing pointers
+                    }
+                }
             }
         }
+        for aux_block_id in num_blocks..(num_blocks + num_aux_blocks) {
+            if !blocks_decoded[aux_block_id] {
+                continue;
+            }
 
-        augmented_data.truncate(block_size * num_blocks);
-        augmented_data
+            let associated_block_ids = aux_block_associations.get(&aux_block_id).unwrap();
+            if let Some(decoded_block_id) = decode_aux_block(
+                aux_block_id,
+                &associated_block_ids,
+                &mut augmented_data,
+                block_size,
+                &blocks_decoded,
+            ) {
+                blocks_decoded[decoded_block_id] = true;
+                num_undecoded_data_blocks -= 1;
+            }
+        }
+        if num_undecoded_data_blocks == 0 {
+            augmented_data.truncate(block_size * num_blocks);
+            return augmented_data;
+        } else if blocks_decoded.iter().take(num_blocks).all(|b| *b) {
+            let _: usize = dbg!(blocks_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
+            let _: usize = dbg!(blocks_decoded
+                .iter()
+                .take(num_blocks)
+                .map(|b| if *b { 0 } else { 1 })
+                .sum());
+            panic!("SOMETHING HAS GONE VERY WRONG");
+        } else {
+            let _: usize = dbg!(blocks_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
+            let _: usize = dbg!(blocks_decoded
+                .iter()
+                .take(num_blocks)
+                .map(|b| if *b { 0 } else { 1 })
+                .sum());
+            dbg!(unused_check_blocks.len());
+            panic!("could not complete decoding!")
+        }
     }
 
     fn get_aux_block_associations(
@@ -140,31 +200,23 @@ impl OnlineCoder {
     }
 }
 
-fn decode_check_block(
+fn decode_from_check_block(
+    block_id: usize,
     check_block: &[u8],
     associated_block_ids: &[usize],
     augmented_data: &mut [u8],
     block_size: usize,
-    blocks_decoded: &[bool],
-) -> Option<usize> {
-    block_to_decode(associated_block_ids, blocks_decoded).map(|target_block_id| {
-        // eprintln!(
-        //     "using check block #{} to decode block #{}: {:?}",
-        //     i, target_block_id, &associated_block_ids
-        // );
-        xor_block(
-            &mut augmented_data[target_block_id * block_size..],
-            check_block,
-            block_size,
-        );
-        xor_associated_blocks(
-            target_block_id,
-            associated_block_ids,
-            augmented_data,
-            block_size,
-        );
-        target_block_id
-    })
+) {
+    // eprintln!(
+    //     "using check block #{} to decode block #{}: {:?}",
+    //     i, target_block_id, &associated_block_ids
+    // );
+    xor_block(
+        &mut augmented_data[block_id * block_size..],
+        check_block,
+        block_size,
+    );
+    xor_associated_blocks(block_id, associated_block_ids, augmented_data, block_size);
 }
 
 fn decode_aux_block(
@@ -312,4 +364,20 @@ fn block_to_decode(associated_block_ids: &[usize], block_decoded: &[bool]) -> Op
     }
 
     return to_decode;
+}
+
+fn undecoded_degree(associated_block_ids: &[usize], blocks_decoded: &[bool]) -> UndecodedDegree {
+    // If exactly one of the associated blocks is not yet decoded, return the id of that block.
+    let mut degree = UndecodedDegree::Zero;
+    for block_id in associated_block_ids {
+        if !blocks_decoded[*block_id] {
+            degree = match degree {
+                UndecodedDegree::Zero => UndecodedDegree::One(*block_id),
+                UndecodedDegree::One(_) => UndecodedDegree::Many(2),
+                UndecodedDegree::Many(n) => UndecodedDegree::Many(n + 1),
+            }
+        }
+    }
+
+    return degree;
 }
