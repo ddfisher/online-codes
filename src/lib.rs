@@ -75,80 +75,43 @@ impl OnlineCoder {
         let aux_block_associations =
             self.get_aux_block_associations(seed, num_blocks, num_aux_blocks);
         let degree_distribution = make_degree_distribution(self.epsilon);
-        let mut data = vec![0; (num_blocks + num_aux_blocks) * block_size]; // includes aux blocks
-        let mut block_decoded = vec![false; num_blocks + num_aux_blocks];
-        while !block_decoded.iter().all(|x| *x) {
+        let mut augmented_data = vec![0; (num_blocks + num_aux_blocks) * block_size]; // includes aux blocks
+        let mut blocks_decoded = vec![false; num_blocks + num_aux_blocks];
+        while !blocks_decoded.iter().all(|x| *x) {
             let mut progress_made = false;
-            for (i, encoded_block) in encoded_data.chunks_exact(block_size).enumerate() {
-                let associated_block_ids = get_associated_blocks(
+            for (i, check_block) in encoded_data.chunks_exact(block_size).enumerate() {
+                if let Some(decoded_block_id) = decode_check_block(
                     i as u64,
+                    check_block,
+                    &mut augmented_data,
                     &degree_distribution,
-                    num_blocks + num_aux_blocks,
-                );
-                if let Some(target_block_id) =
-                    block_to_decode(associated_block_ids.as_slice(), &block_decoded)
-                {
-                    eprintln!(
-                        "using check block #{} to decode block #{}: {:?}",
-                        i, target_block_id, &associated_block_ids
-                    );
-                    xor_block(
-                        &mut data[target_block_id * block_size..],
-                        encoded_block,
-                        block_size,
-                    );
-                    for associated_block_id in associated_block_ids {
-                        if associated_block_id != target_block_id {
-                            for i in 0..block_size {
-                                data[target_block_id * block_size + i] ^=
-                                    data[associated_block_id * block_size + i];
-                            }
-                        }
-                    }
-                    block_decoded[target_block_id] = true;
+                    block_size,
+                    &blocks_decoded,
+                ) {
+                    blocks_decoded[decoded_block_id] = true;
                     progress_made = true;
                 }
             }
-            let (s_data, aux_data) = data.split_at_mut(num_blocks * block_size);
-            for (i, aux_block) in aux_data.chunks_exact(block_size).enumerate() {
-                let aux_id = i + num_blocks;
-                if !block_decoded[aux_id] {
-                    continue;
-                }
-
-                let associated_block_ids = aux_block_associations.get(&aux_id).unwrap();
-                if let Some(target_block_id) =
-                    block_to_decode(associated_block_ids.as_slice(), &block_decoded)
-                {
-                    eprintln!(
-                        "using AUX block  #{} to decode block #{}: {:?}",
-                        i, target_block_id, &associated_block_ids
-                    );
-                    xor_block(
-                        &mut s_data[target_block_id * block_size..],
-                        aux_block,
-                        block_size,
-                    );
-                    for associated_block_id in associated_block_ids {
-                        if *associated_block_id != target_block_id {
-                            for i in 0..block_size {
-                                s_data[target_block_id * block_size + i] ^=
-                                    s_data[associated_block_id * block_size + i];
-                            }
-                        }
-                    }
-                    block_decoded[target_block_id] = true;
+            for aux_block_id in num_blocks..(num_blocks + num_aux_blocks) {
+                if let Some(decoded_block_id) = decode_aux_block(
+                    aux_block_id,
+                    &mut augmented_data,
+                    &aux_block_associations,
+                    block_size,
+                    &blocks_decoded,
+                ) {
+                    blocks_decoded[decoded_block_id] = true;
                     progress_made = true;
                 }
             }
             if !progress_made {
-                let _: usize = dbg!(block_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
+                let _: usize = dbg!(blocks_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
                 panic!("could not complete decoding!")
             }
         }
 
-        data.truncate(block_size * num_blocks);
-        data
+        augmented_data.truncate(block_size * num_blocks);
+        augmented_data
     }
 
     fn get_aux_block_associations(
@@ -165,6 +128,86 @@ impl OnlineCoder {
             }
         }
         mapping
+    }
+}
+
+fn decode_check_block(
+    check_block_id: u64,
+    check_block: &[u8],
+    augmented_data: &mut [u8],
+    degree_distribution: &WeightedIndex<f64>,
+    block_size: usize,
+    blocks_decoded: &[bool],
+) -> Option<usize> {
+    let associated_block_ids = get_associated_blocks(
+        check_block_id,
+        degree_distribution,
+        augmented_data.len() / block_size,
+    );
+    block_to_decode(&associated_block_ids, blocks_decoded).map(|target_block_id| {
+        // eprintln!(
+        //     "using check block #{} to decode block #{}: {:?}",
+        //     i, target_block_id, &associated_block_ids
+        // );
+        xor_block(
+            &mut augmented_data[target_block_id * block_size..],
+            check_block,
+            block_size,
+        );
+        xor_associated_blocks(
+            target_block_id,
+            &associated_block_ids,
+            augmented_data,
+            block_size,
+        );
+        target_block_id
+    })
+}
+
+fn decode_aux_block(
+    aux_block_id: usize,
+    augmented_data: &mut [u8],
+    aux_block_associations: &HashMap<usize, Vec<usize>>,
+    block_size: usize,
+    blocks_decoded: &[bool],
+) -> Option<usize> {
+    // eprintln!(
+    //     "using AUX block  #{} to decode block #{}: {:?}",
+    //     i, target_block_id, &associated_block_ids
+    // );
+    if !blocks_decoded[aux_block_id] {
+        None
+    } else {
+        let associated_block_ids = aux_block_associations.get(&aux_block_id).unwrap();
+        block_to_decode(associated_block_ids, blocks_decoded).map(|target_block_id| {
+            for i in 0..block_size {
+                augmented_data[target_block_id * block_size + i] ^=
+                    augmented_data[aux_block_id * block_size + i];
+            }
+            xor_associated_blocks(
+                target_block_id,
+                associated_block_ids,
+                augmented_data,
+                block_size,
+            );
+            target_block_id
+        })
+    }
+}
+
+fn xor_associated_blocks(
+    target_block_id: usize,
+    associated_block_ids: &[usize],
+    augmented_data: &mut [u8],
+    block_size: usize,
+) {
+    for associated_block_id in associated_block_ids {
+        if *associated_block_id != target_block_id {
+            for i in 0..block_size {
+                augmented_data[target_block_id * block_size + i] ^=
+                    augmented_data[associated_block_id * block_size + i];
+            }
+        }
     }
 }
 
