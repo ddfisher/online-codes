@@ -1,4 +1,4 @@
-use log::{debug, trace};
+use log::trace;
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
 use rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
@@ -120,116 +120,24 @@ impl<'a> Iterator for BlockIter<'a> {
 
 impl OnlineCoder {
     // TODO: implement in a vaguely optimized way
-    pub fn decode<'a>(
-        &self,
-        encoded_data: &'a Vec<u8>,
-        num_blocks: usize,
-        block_size: usize,
-        seed: u64,
-    ) -> Vec<u8> {
+    pub fn decode<'a>(&self, num_blocks: usize, block_size: usize, seed: u64) -> Decoder {
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
+        let num_augmented_blocks = num_blocks + num_aux_blocks;
         let aux_block_associations =
             self.get_aux_block_associations(seed, num_blocks, num_aux_blocks);
-        let degree_distribution = make_degree_distribution(self.epsilon);
-        let mut augmented_data = vec![0; (num_blocks + num_aux_blocks) * block_size]; // includes aux blocks
-        let mut blocks_decoded = vec![false; num_blocks + num_aux_blocks];
-        let mut num_undecoded_data_blocks = num_blocks;
-        let mut unused_check_blocks: HashMap<u64, (usize, &[u8])> = HashMap::new();
-        let mut block_dependencies: HashMap<usize, Vec<u64>> = HashMap::new();
-        let mut decode_stack: Vec<(u64, &[u8])> = Vec::new();
+        Decoder {
+            num_blocks,
+            num_augmented_blocks: num_blocks + num_aux_blocks,
+            block_size,
+            aux_block_associations,
+            degree_distribution: make_degree_distribution(self.epsilon),
 
-        for (i, check_block) in encoded_data.chunks_exact(block_size).enumerate() {
-            decode_stack.push((i as u64, check_block));
-        }
-        while let Some((check_block_id, check_block)) = decode_stack.pop() {
-            let associated_block_ids = get_associated_blocks(
-                check_block_id,
-                &degree_distribution,
-                num_blocks + num_aux_blocks,
-            );
-            match undecoded_degree(&associated_block_ids, &blocks_decoded) {
-                UndecodedDegree::Zero => { /* This block has already been decoded. */ }
-                UndecodedDegree::One(target_block_id) => {
-                    decode_from_check_block(
-                        target_block_id,
-                        check_block,
-                        &associated_block_ids,
-                        &mut augmented_data,
-                        block_size,
-                    );
-                    blocks_decoded[target_block_id] = true;
-                    if target_block_id < num_blocks {
-                        num_undecoded_data_blocks -= 1;
-                    }
-                    block_dependencies
-                        .remove(&target_block_id)
-                        .map(|dependencies| {
-                            for depending_block_id in dependencies {
-                                if let Some((remaining_degree, _)) =
-                                    &mut unused_check_blocks.get_mut(&depending_block_id)
-                                {
-                                    *remaining_degree -= 1;
-                                    if *remaining_degree == 1 {
-                                        decode_stack.push((
-                                            depending_block_id,
-                                            unused_check_blocks
-                                                .remove(&depending_block_id)
-                                                .unwrap()
-                                                .1, //TODO: use entry
-                                        ));
-                                    }
-                                }
-                            }
-                        });
-                }
-                UndecodedDegree::Many(degree) => {
-                    unused_check_blocks.insert(check_block_id, (degree, check_block));
-                    for associated_block_id in associated_block_ids {
-                        block_dependencies
-                            .entry(associated_block_id)
-                            .or_default()
-                            .push(check_block_id) // TODO: consider switching to storing pointers
-                    }
-                }
-            }
-        }
-        for aux_block_id in num_blocks..(num_blocks + num_aux_blocks) {
-            if !blocks_decoded[aux_block_id] {
-                continue;
-            }
-
-            let associated_block_ids = aux_block_associations.get(&aux_block_id).unwrap();
-            if let Some(decoded_block_id) = decode_aux_block(
-                aux_block_id,
-                &associated_block_ids,
-                &mut augmented_data,
-                block_size,
-                &blocks_decoded,
-            ) {
-                blocks_decoded[decoded_block_id] = true;
-                num_undecoded_data_blocks -= 1;
-            }
-        }
-        if num_undecoded_data_blocks == 0 {
-            augmented_data.truncate(block_size * num_blocks);
-            return augmented_data;
-        } else if blocks_decoded.iter().take(num_blocks).all(|b| *b) {
-            let _: usize = dbg!(blocks_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
-            let _: usize = dbg!(blocks_decoded
-                .iter()
-                .take(num_blocks)
-                .map(|b| if *b { 0 } else { 1 })
-                .sum());
-            panic!("SOMETHING HAS GONE VERY WRONG");
-        } else {
-            let _: usize = dbg!(blocks_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
-            let _: usize = dbg!(blocks_decoded
-                .iter()
-                .take(num_blocks)
-                .map(|b| if *b { 0 } else { 1 })
-                .sum());
-            dbg!(unused_check_blocks.len());
-            panic!("could not complete decoding!")
+            augmented_data: vec![0; num_augmented_blocks * block_size],
+            blocks_decoded: vec![false; num_augmented_blocks],
+            num_undecoded_data_blocks: num_blocks,
+            unused_check_blocks: HashMap::new(),
+            block_dependencies: HashMap::new(),
+            decode_stack: Vec::new(),
         }
     }
 
@@ -247,6 +155,133 @@ impl OnlineCoder {
             }
         }
         mapping
+    }
+}
+
+pub struct Decoder<'a> {
+    num_blocks: usize,
+    num_augmented_blocks: usize,
+    block_size: usize,
+    degree_distribution: WeightedIndex<f64>,
+    aux_block_associations: HashMap<usize, Vec<usize>>,
+
+    augmented_data: Vec<u8>,
+    blocks_decoded: Vec<bool>,
+    num_undecoded_data_blocks: usize,
+    unused_check_blocks: HashMap<u64, (usize, &'a [u8])>,
+    block_dependencies: HashMap<usize, Vec<u64>>,
+    decode_stack: Vec<(u64, &'a [u8])>,
+}
+
+impl<'a> Decoder<'a> {
+    pub fn decode_chunk(&mut self, check_block_id: u64, check_block: &'a [u8]) -> bool {
+        // TODO: consider if this should take in a slice or a Vec
+        // TODO: consider if this function should copy the slice if need be so it's not required to
+        // live for the lifetime of the decoder
+        self.decode_stack.push((check_block_id, check_block));
+
+        while let Some((check_block_id, check_block)) = self.decode_stack.pop() {
+            let associated_block_ids = get_associated_blocks(
+                check_block_id,
+                &self.degree_distribution,
+                self.num_augmented_blocks,
+            );
+            match undecoded_degree(&associated_block_ids, &self.blocks_decoded) {
+                UndecodedDegree::Zero => { /* This block has already been decoded. */ }
+                UndecodedDegree::One(target_block_id) => {
+                    decode_from_check_block(
+                        target_block_id,
+                        check_block,
+                        &associated_block_ids,
+                        &mut self.augmented_data,
+                        self.block_size,
+                    );
+                    self.blocks_decoded[target_block_id] = true;
+                    if target_block_id < self.num_blocks {
+                        self.num_undecoded_data_blocks -= 1;
+                    }
+                    self.block_dependencies
+                        .remove(&target_block_id)
+                        .map(|dependencies| {
+                            for depending_block_id in dependencies {
+                                if let Some((remaining_degree, _)) =
+                                    &mut self.unused_check_blocks.get_mut(&depending_block_id)
+                                {
+                                    *remaining_degree -= 1;
+                                    if *remaining_degree == 1 {
+                                        self.decode_stack.push((
+                                            depending_block_id,
+                                            self.unused_check_blocks
+                                                .remove(&depending_block_id)
+                                                .unwrap()
+                                                .1, //TODO: use entry
+                                        ));
+                                    }
+                                }
+                            }
+                        });
+                }
+                UndecodedDegree::Many(degree) => {
+                    self.unused_check_blocks
+                        .insert(check_block_id, (degree, check_block));
+                    for associated_block_id in associated_block_ids {
+                        self.block_dependencies
+                            .entry(associated_block_id)
+                            .or_default()
+                            .push(check_block_id) // TODO: consider switching to storing pointers
+                    }
+                }
+            }
+        }
+        for aux_block_id in self.num_blocks..self.num_augmented_blocks {
+            if !self.blocks_decoded[aux_block_id] {
+                continue;
+            }
+
+            let associated_block_ids = self.aux_block_associations.get(&aux_block_id).unwrap();
+            if let Some(decoded_block_id) = decode_aux_block(
+                aux_block_id,
+                &associated_block_ids,
+                &mut self.augmented_data,
+                self.block_size,
+                &self.blocks_decoded,
+            ) {
+                self.blocks_decoded[decoded_block_id] = true;
+                self.num_undecoded_data_blocks -= 1;
+            }
+        }
+        self.num_undecoded_data_blocks == 0
+        // if self.num_undecoded_data_blocks == 0 {
+        //     augmented_data.truncate(block_size * num_blocks);
+        //     return augmented_data;
+        // } else if blocks_decoded.iter().take(num_blocks).all(|b| *b) {
+        //     let _: usize = dbg!(blocks_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
+        //     let _: usize = dbg!(blocks_decoded
+        //         .iter()
+        //         .take(num_blocks)
+        //         .map(|b| if *b { 0 } else { 1 })
+        //         .sum());
+        //     panic!("SOMETHING HAS GONE VERY WRONG");
+        // } else {
+        //     let _: usize = dbg!(blocks_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
+        //     let _: usize = dbg!(blocks_decoded
+        //         .iter()
+        //         .take(num_blocks)
+        //         .map(|b| if *b { 0 } else { 1 })
+        //         .sum());
+        //     dbg!(unused_check_blocks.len());
+        //     panic!("could not complete decoding!")
+        // }
+    }
+
+    pub fn get_result(mut self) -> Option<Vec<u8>> {
+        if self.num_undecoded_data_blocks == 0 {
+            self.augmented_data
+                .truncate(self.block_size * self.num_blocks);
+            Some(self.augmented_data)
+        } else {
+            None
+        }
     }
 }
 
