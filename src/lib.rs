@@ -71,7 +71,54 @@ impl OnlineCoder {
             block_id: 0,
         }
     }
+}
 
+pub struct BlockIter<'a> {
+    data: &'a [u8],
+    aux_data: Vec<u8>,
+    block_size: usize,
+    degree_distribution: WeightedIndex<f64>,
+    block_id: u64, // TODO: this should be a larger size type
+}
+
+impl<'a> Iterator for BlockIter<'a> {
+    type Item = Vec<u8>;
+    fn next(&mut self) -> Option<Vec<u8>> {
+        let num_blocks = self.data.len() / self.block_size;
+        let num_aux_blocks = self.aux_data.len() / self.block_size;
+        let mut check_block = vec![0; self.block_size];
+        let associated_blocks = get_associated_blocks(
+            self.block_id,
+            &self.degree_distribution,
+            num_blocks + num_aux_blocks,
+        );
+        trace!(
+            "encoding check block from associated blocks {:?}",
+            associated_blocks
+        );
+        for block_index in associated_blocks {
+            if block_index < num_blocks {
+                xor_block(
+                    &mut check_block,
+                    &self.data[block_index * self.block_size..],
+                    self.block_size,
+                );
+            } else {
+                // Aux block.
+                xor_block(
+                    &mut check_block,
+                    &self.aux_data[(block_index - num_blocks) * self.block_size..],
+                    self.block_size,
+                );
+            }
+        }
+
+        self.block_id += 1;
+        Some(check_block)
+    }
+}
+
+impl OnlineCoder {
     // TODO: implement in a vaguely optimized way
     pub fn decode<'a>(
         &self,
@@ -299,51 +346,6 @@ fn sample_with_exclusive_repeats(
 fn xor_block(dest: &mut [u8], src: &[u8], block_size: usize) {
     for i in 0..block_size {
         dest[i] ^= src[i];
-    }
-}
-
-pub struct BlockIter<'a> {
-    data: &'a [u8],
-    aux_data: Vec<u8>,
-    block_size: usize,
-    degree_distribution: WeightedIndex<f64>,
-    block_id: u64, // TODO: this should be a larger size type
-}
-
-impl<'a> Iterator for BlockIter<'a> {
-    type Item = Vec<u8>;
-    fn next(&mut self) -> Option<Vec<u8>> {
-        let num_blocks = self.data.len() / self.block_size;
-        let num_aux_blocks = self.aux_data.len() / self.block_size;
-        let mut check_block = vec![0; self.block_size];
-        let associated_blocks = get_associated_blocks(
-            self.block_id,
-            &self.degree_distribution,
-            num_blocks + num_aux_blocks,
-        );
-        trace!(
-            "encoding check block from associated blocks {:?}",
-            associated_blocks
-        );
-        for block_index in associated_blocks {
-            if block_index < num_blocks {
-                xor_block(
-                    &mut check_block,
-                    &self.data[block_index * self.block_size..],
-                    self.block_size,
-                );
-            } else {
-                // Aux block.
-                xor_block(
-                    &mut check_block,
-                    &self.aux_data[(block_index - num_blocks) * self.block_size..],
-                    self.block_size,
-                );
-            }
-        }
-
-        self.block_id += 1;
-        Some(check_block)
     }
 }
 
