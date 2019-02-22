@@ -4,6 +4,8 @@ edition = "2018"
 name = "on_line_codes"
 version = "0.1.0"
 [dependencies]
+env_logger = "*"
+log = "*"
 rand = "*"
 rand_core = "*"
 rand_xoshiro = "*"

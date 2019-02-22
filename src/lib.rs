@@ -1,3 +1,4 @@
+use log::{debug, trace};
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
 use rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
@@ -33,7 +34,9 @@ impl OnlineCoder {
 
     pub fn encode<'a>(&self, data: &'a [u8], block_size: usize, seed: u64) -> BlockIter<'a> {
         assert!(data.len() % block_size == 0);
+        trace!("data: {:X?}", data);
         let aux_data = self.outer_encode(data, block_size, seed);
+        trace!("aux data: {:X?}", data);
         self.inner_encode(data, aux_data, block_size)
     }
 
@@ -313,11 +316,16 @@ impl<'a> Iterator for BlockIter<'a> {
         let num_blocks = self.data.len() / self.block_size;
         let num_aux_blocks = self.aux_data.len() / self.block_size;
         let mut check_block = vec![0; self.block_size];
-        for block_index in get_associated_blocks(
+        let associated_blocks = get_associated_blocks(
             self.block_id,
             &self.degree_distribution,
             num_blocks + num_aux_blocks,
-        ) {
+        );
+        trace!(
+            "encoding check block from associated blocks {:?}",
+            associated_blocks
+        );
+        for block_index in associated_blocks {
             if block_index < num_blocks {
                 xor_block(
                     &mut check_block,
