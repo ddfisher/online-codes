@@ -19,54 +19,58 @@ enum UndecodedDegree {
 }
 
 pub struct OnlineCoder {
+    block_size: usize,
     epsilon: f64,
     q: usize,
 }
 
 impl OnlineCoder {
-    pub fn new() -> OnlineCoder {
-        Self::with_parameters(0.01, 3)
+    pub fn new(block_size: usize) -> OnlineCoder {
+        Self::with_parameters(block_size, 0.01, 3)
     }
 
-    pub fn with_parameters(epsilon: f64, q: usize) -> OnlineCoder {
-        OnlineCoder { epsilon, q }
+    pub fn with_parameters(block_size: usize, epsilon: f64, q: usize) -> OnlineCoder {
+        OnlineCoder {
+            block_size,
+            epsilon,
+            q,
+        }
     }
 
-    pub fn encode<'a>(&self, data: &'a [u8], block_size: usize, seed: u64) -> BlockIter<'a> {
-        assert!(data.len() % block_size == 0);
+    pub fn encode<'a>(&self, data: &'a [u8], seed: u64) -> BlockIter<'a> {
+        assert!(data.len() % self.block_size == 0);
         trace!("data: {:X?}", data);
-        let aux_data = self.outer_encode(data, block_size, seed);
+        let aux_data = self.outer_encode(data, seed);
         trace!("aux data: {:X?}", data);
-        self.inner_encode(data, aux_data, block_size)
+        self.inner_encode(data, aux_data)
     }
 
     fn num_aux_blocks(&self, num_blocks: usize) -> usize {
         (0.55f64 * self.q as f64 * self.epsilon * num_blocks as f64).ceil() as usize
     }
 
-    fn outer_encode(&self, data: &[u8], block_size: usize, seed: u64) -> Vec<u8> {
-        let num_blocks = data.len() / block_size;
+    fn outer_encode(&self, data: &[u8], seed: u64) -> Vec<u8> {
+        let num_blocks = data.len() / self.block_size;
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
-        let mut aux_data = vec![0; num_aux_blocks * block_size];
+        let mut aux_data = vec![0; num_aux_blocks * self.block_size];
         let mut rng = Xoshiro256StarStar::seed_from_u64(seed);
-        for block in data.chunks_exact(block_size) {
+        for block in data.chunks_exact(self.block_size) {
             for aux_index in sample_with_exclusive_repeats(&mut rng, num_aux_blocks, self.q) {
-                xor_block(&mut aux_data[aux_index * block_size..], block, block_size);
+                xor_block(
+                    &mut aux_data[aux_index * self.block_size..],
+                    block,
+                    self.block_size,
+                );
             }
         }
         aux_data
     }
 
-    fn inner_encode<'a>(
-        &self,
-        data: &'a [u8],
-        aux_data: Vec<u8>,
-        block_size: usize,
-    ) -> BlockIter<'a> {
+    fn inner_encode<'a>(&self, data: &'a [u8], aux_data: Vec<u8>) -> BlockIter<'a> {
         BlockIter {
             data,
             aux_data,
-            block_size,
+            block_size: self.block_size,
             degree_distribution: make_degree_distribution(self.epsilon),
             block_id: 0,
         }
@@ -120,7 +124,7 @@ impl<'a> Iterator for BlockIter<'a> {
 
 impl OnlineCoder {
     // TODO: implement in a vaguely optimized way
-    pub fn decode<'a>(&self, num_blocks: usize, block_size: usize, seed: u64) -> Decoder {
+    pub fn decode<'a>(&self, num_blocks: usize, seed: u64) -> Decoder {
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
         let num_augmented_blocks = num_blocks + num_aux_blocks;
         let aux_block_associations =
@@ -128,11 +132,11 @@ impl OnlineCoder {
         Decoder {
             num_blocks,
             num_augmented_blocks: num_blocks + num_aux_blocks,
-            block_size,
+            block_size: self.block_size,
             aux_block_associations,
             degree_distribution: make_degree_distribution(self.epsilon),
 
-            augmented_data: vec![0; num_augmented_blocks * block_size],
+            augmented_data: vec![0; num_augmented_blocks * self.block_size],
             blocks_decoded: vec![false; num_augmented_blocks],
             num_undecoded_data_blocks: num_blocks,
             unused_check_blocks: HashMap::new(),
