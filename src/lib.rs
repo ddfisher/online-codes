@@ -14,13 +14,14 @@ mod tests {
 
 enum UndecodedDegree {
     Zero,
-    One(usize),  // id of single block which hasn't yet been decoded
-    Many(usize), // number of blocks that haven't yet been decoded
+    One(BlockIndex), // id of single block which hasn't yet been decoded
+    Many(usize),     // number of blocks that haven't yet been decoded
 }
 
 // TODO: these should be larger types
 type StreamId = u64;
 type CheckBlockId = u64;
+type BlockIndex = usize;
 
 pub struct OnlineCoder {
     block_size: usize,
@@ -154,8 +155,8 @@ impl OnlineCoder {
         stream_id: StreamId,
         num_blocks: usize,
         num_auxiliary_blocks: usize,
-    ) -> HashMap<usize, Vec<usize>> {
-        let mut mapping: HashMap<usize, Vec<usize>> = HashMap::new();
+    ) -> HashMap<BlockIndex, Vec<BlockIndex>> {
+        let mut mapping: HashMap<BlockIndex, Vec<BlockIndex>> = HashMap::new();
         let mut rng = Xoshiro256StarStar::seed_from_u64(stream_id);
         for i in 0..num_blocks {
             for aux_index in sample_with_exclusive_repeats(&mut rng, num_auxiliary_blocks, self.q) {
@@ -171,13 +172,13 @@ pub struct Decoder<'a> {
     num_augmented_blocks: usize,
     block_size: usize,
     degree_distribution: WeightedIndex<f64>,
-    aux_block_associations: HashMap<usize, Vec<usize>>,
+    aux_block_associations: HashMap<BlockIndex, Vec<BlockIndex>>,
 
     augmented_data: Vec<u8>,
     blocks_decoded: Vec<bool>,
     num_undecoded_data_blocks: usize,
     unused_check_blocks: HashMap<CheckBlockId, (usize, &'a [u8])>,
-    block_dependencies: HashMap<usize, Vec<CheckBlockId>>,
+    block_dependencies: HashMap<BlockIndex, Vec<CheckBlockId>>,
     decode_stack: Vec<(CheckBlockId, &'a [u8])>,
 }
 
@@ -186,6 +187,8 @@ impl<'a> Decoder<'a> {
         // TODO: consider if this should take in a slice or a Vec
         // TODO: consider if this function should copy the slice if need be so it's not required to
         // live for the lifetime of the decoder
+
+        // TODO: don't immediately push then pop off the decode stack
         self.decode_stack.push((check_block_id, check_block));
 
         while let Some((check_block_id, check_block)) = self.decode_stack.pop() {
@@ -195,7 +198,7 @@ impl<'a> Decoder<'a> {
                 self.num_augmented_blocks,
             );
             match undecoded_degree(&associated_block_ids, &self.blocks_decoded) {
-                UndecodedDegree::Zero => { /* This block has already been decoded. */ }
+                UndecodedDegree::Zero => { /* This check block contains no new information. */ }
                 UndecodedDegree::One(target_block_id) => {
                     decode_from_check_block(
                         target_block_id,
@@ -267,35 +270,32 @@ impl<'a> Decoder<'a> {
 }
 
 fn decode_from_check_block(
-    block_id: usize,
+    target_block_id: BlockIndex,
     check_block: &[u8],
-    associated_block_ids: &[usize],
+    associated_block_ids: &[BlockIndex],
     augmented_data: &mut [u8],
     block_size: usize,
 ) {
-    // eprintln!(
-    //     "using check block #{} to decode block #{}: {:?}",
-    //     i, target_block_id, &associated_block_ids
-    // );
     xor_block(
-        &mut augmented_data[block_id * block_size..],
+        &mut augmented_data[target_block_id * block_size..],
         check_block,
         block_size,
     );
-    xor_associated_blocks(block_id, associated_block_ids, augmented_data, block_size);
+    xor_associated_blocks(
+        target_block_id,
+        associated_block_ids,
+        augmented_data,
+        block_size,
+    );
 }
 
 fn decode_aux_block(
-    aux_block_id: usize,
-    associated_block_ids: &[usize],
+    aux_block_id: BlockIndex,
+    associated_block_ids: &[BlockIndex],
     augmented_data: &mut [u8],
     block_size: usize,
     blocks_decoded: &[bool],
-) -> Option<usize> {
-    // eprintln!(
-    //     "using AUX block  #{} to decode block #{}: {:?}",
-    //     i, target_block_id, &associated_block_ids
-    // );
+) -> Option<BlockIndex> {
     block_to_decode(associated_block_ids, blocks_decoded).map(|target_block_id| {
         for i in 0..block_size {
             augmented_data[target_block_id * block_size + i] ^=
@@ -312,8 +312,8 @@ fn decode_aux_block(
 }
 
 fn xor_associated_blocks(
-    target_block_id: usize,
-    associated_block_ids: &[usize],
+    target_block_id: BlockIndex,
+    associated_block_ids: &[BlockIndex],
     augmented_data: &mut [u8],
     block_size: usize,
 ) {
@@ -370,14 +370,17 @@ fn get_associated_blocks(
     block_id: CheckBlockId,
     degree_distribution: &WeightedIndex<f64>,
     num_blocks: usize,
-) -> Vec<usize> {
+) -> Vec<BlockIndex> {
     // TODO: this should use the stream id too
     let mut rng = Xoshiro256StarStar::seed_from_u64(block_id);
     let degree = 1 + degree_distribution.sample(&mut rng);
     sample_with_exclusive_repeats(&mut rng, num_blocks, degree)
 }
 
-fn block_to_decode(associated_block_ids: &[usize], block_decoded: &[bool]) -> Option<usize> {
+fn block_to_decode(
+    associated_block_ids: &[BlockIndex],
+    block_decoded: &[bool],
+) -> Option<BlockIndex> {
     // If exactly one of the associated blocks is not yet decoded, return the id of that block.
     let mut to_decode = None;
     for block_id in associated_block_ids {
@@ -392,7 +395,10 @@ fn block_to_decode(associated_block_ids: &[usize], block_decoded: &[bool]) -> Op
     return to_decode;
 }
 
-fn undecoded_degree(associated_block_ids: &[usize], blocks_decoded: &[bool]) -> UndecodedDegree {
+fn undecoded_degree(
+    associated_block_ids: &[BlockIndex],
+    blocks_decoded: &[bool],
+) -> UndecodedDegree {
     // If exactly one of the associated blocks is not yet decoded, return the id of that block.
     let mut degree = UndecodedDegree::Zero;
     for block_id in associated_block_ids {
