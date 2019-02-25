@@ -4,13 +4,8 @@ use rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+// TODO: write tests with proptest
+// write benchmarks
 
 enum UndecodedDegree {
     Zero,
@@ -18,7 +13,7 @@ enum UndecodedDegree {
     Many(usize),     // number of blocks that haven't yet been decoded
 }
 
-// TODO: these should be larger types
+// TODO: the IDs should be larger types
 type StreamId = u64;
 type CheckBlockId = u64;
 type BlockIndex = usize;
