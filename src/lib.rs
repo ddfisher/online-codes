@@ -77,7 +77,7 @@ impl OnlineCoder {
             aux_data,
             block_size: self.block_size,
             degree_distribution: make_degree_distribution(self.epsilon),
-            block_id: 0,
+            check_block_id: 0,
         }
     }
 }
@@ -87,7 +87,7 @@ pub struct BlockIter<'a> {
     aux_data: Vec<u8>,
     block_size: usize,
     degree_distribution: WeightedIndex<f64>,
-    block_id: CheckBlockId,
+    check_block_id: CheckBlockId,
 }
 
 impl<'a> Iterator for BlockIter<'a> {
@@ -97,7 +97,7 @@ impl<'a> Iterator for BlockIter<'a> {
         let num_aux_blocks = self.aux_data.len() / self.block_size;
         let mut check_block = vec![0; self.block_size];
         let associated_blocks = get_associated_blocks(
-            self.block_id,
+            self.check_block_id,
             &self.degree_distribution,
             num_blocks + num_aux_blocks,
         );
@@ -122,7 +122,7 @@ impl<'a> Iterator for BlockIter<'a> {
             }
         }
 
-        self.block_id += 1;
+        self.check_block_id += 1;
         Some(check_block)
     }
 }
@@ -367,12 +367,12 @@ fn xor_block(dest: &mut [u8], src: &[u8], block_size: usize) {
 
 // TODO: return an iterator instead
 fn get_associated_blocks(
-    block_id: CheckBlockId,
+    check_block_id: CheckBlockId,
     degree_distribution: &WeightedIndex<f64>,
     num_blocks: usize,
 ) -> Vec<BlockIndex> {
     // TODO: this should use the stream id too
-    let mut rng = Xoshiro256StarStar::seed_from_u64(block_id);
+    let mut rng = Xoshiro256StarStar::seed_from_u64(check_block_id);
     let degree = 1 + degree_distribution.sample(&mut rng);
     sample_with_exclusive_repeats(&mut rng, num_blocks, degree)
 }
