@@ -22,16 +22,16 @@ fn main() {
     let data: Vec<u8> = message.repeat(1).as_bytes().iter().map(|x| *x).collect();
     // let data: Vec<u8> = (0..100).collect();
     // dbg!(&data);
-    let coder = OnlineCoder::with_parameters(0.01, 3);
     let seed = 0xDEADBEEF;
     let block_size = 1;
     let num_blocks = data.len() / block_size;
+    let coder = OnlineCoder::with_parameters(block_size, 0.01, 3);
     dbg!(num_blocks);
     let mut encoded_data: Vec<u8> = Vec::new();
-    for mut chunk in coder.encode(&data, block_size, seed).take(num_blocks + 500) {
+    for mut chunk in coder.encode(&data, seed).take(num_blocks + 500) {
         encoded_data.append(&mut chunk);
     }
-    let mut decoder = coder.decode(num_blocks, block_size, seed);
+    let mut decoder = coder.decode(num_blocks, seed);
     for (check_block_id, check_block) in (0..).zip(encoded_data.chunks_exact(block_size)) {
         if decoder.decode_chunk(check_block_id, check_block) {
             let decoded_message = decoder.get_result().unwrap();

@@ -2,7 +2,7 @@ use log::trace;
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
 use rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 #[cfg(test)]
 mod tests {
@@ -204,26 +204,20 @@ impl<'a> Decoder<'a> {
                     if target_block_id < self.num_blocks {
                         self.num_undecoded_data_blocks -= 1;
                     }
-                    self.block_dependencies
-                        .remove(&target_block_id)
-                        .map(|dependencies| {
-                            for depending_block_id in dependencies {
-                                if let Some((remaining_degree, _)) =
-                                    &mut self.unused_check_blocks.get_mut(&depending_block_id)
-                                {
-                                    *remaining_degree -= 1;
-                                    if *remaining_degree == 1 {
-                                        self.decode_stack.push((
-                                            depending_block_id,
-                                            self.unused_check_blocks
-                                                .remove(&depending_block_id)
-                                                .unwrap()
-                                                .1, //TODO: use entry
-                                        ));
-                                    }
+                    if let Some(dependencies) = self.block_dependencies.remove(&target_block_id) {
+                        for depending_block_id in dependencies {
+                            if let Entry::Occupied(mut unused_block_entry) =
+                                self.unused_check_blocks.entry(depending_block_id)
+                            {
+                                let remaining_degree = &mut unused_block_entry.get_mut().0;
+                                *remaining_degree -= 1;
+                                if *remaining_degree == 1 {
+                                    self.decode_stack
+                                        .push((depending_block_id, unused_block_entry.remove().1));
                                 }
                             }
-                        });
+                        }
+                    };
                 }
                 UndecodedDegree::Many(degree) => {
                     self.unused_check_blocks
@@ -255,27 +249,6 @@ impl<'a> Decoder<'a> {
             }
         }
         self.num_undecoded_data_blocks == 0
-        // if self.num_undecoded_data_blocks == 0 {
-        //     augmented_data.truncate(block_size * num_blocks);
-        //     return augmented_data;
-        // } else if blocks_decoded.iter().take(num_blocks).all(|b| *b) {
-        //     let _: usize = dbg!(blocks_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
-        //     let _: usize = dbg!(blocks_decoded
-        //         .iter()
-        //         .take(num_blocks)
-        //         .map(|b| if *b { 0 } else { 1 })
-        //         .sum());
-        //     panic!("SOMETHING HAS GONE VERY WRONG");
-        // } else {
-        //     let _: usize = dbg!(blocks_decoded.iter().map(|b| if *b { 1 } else { 0 }).sum());
-        //     let _: usize = dbg!(blocks_decoded
-        //         .iter()
-        //         .take(num_blocks)
-        //         .map(|b| if *b { 0 } else { 1 })
-        //         .sum());
-        //     dbg!(unused_check_blocks.len());
-        //     panic!("could not complete decoding!")
-        // }
     }
 
     pub fn get_result(mut self) -> Option<Vec<u8>> {
