@@ -145,8 +145,9 @@ impl OnlineCoder {
             blocks_decoded: vec![false; num_augmented_blocks],
             num_undecoded_data_blocks: num_blocks,
             unused_check_blocks: HashMap::new(),
-            block_dependencies: HashMap::new(),
+            adjacent_check_blocks: HashMap::new(),
             decode_stack: Vec::new(),
+            aux_decode_stack: Vec::new(),
         }
     }
 
@@ -155,12 +156,15 @@ impl OnlineCoder {
         stream_id: StreamId,
         num_blocks: usize,
         num_auxiliary_blocks: usize,
-    ) -> HashMap<BlockIndex, Vec<BlockIndex>> {
-        let mut mapping: HashMap<BlockIndex, Vec<BlockIndex>> = HashMap::new();
+    ) -> HashMap<BlockIndex, (usize, Vec<BlockIndex>)> {
+        let mut mapping: HashMap<BlockIndex, (usize, Vec<BlockIndex>)> = HashMap::new();
         let mut rng = Xoshiro256StarStar::seed_from_u64(stream_id);
         for i in 0..num_blocks {
             for aux_index in sample_with_exclusive_repeats(&mut rng, num_auxiliary_blocks, self.q) {
-                mapping.entry(aux_index + num_blocks).or_default().push(i);
+                // TODO: clean up a bit
+                let (num, ids) = &mut mapping.entry(aux_index + num_blocks).or_default();
+                *num += 1;
+                ids.push(i);
             }
         }
         mapping
@@ -172,14 +176,15 @@ pub struct Decoder<'a> {
     num_augmented_blocks: usize,
     block_size: usize,
     degree_distribution: WeightedIndex<f64>,
-    aux_block_adjacencies: HashMap<BlockIndex, Vec<BlockIndex>>,
+    aux_block_adjacencies: HashMap<BlockIndex, (usize, Vec<BlockIndex>)>,
 
     augmented_data: Vec<u8>,
     blocks_decoded: Vec<bool>,
     num_undecoded_data_blocks: usize,
     unused_check_blocks: HashMap<CheckBlockId, (usize, &'a [u8])>,
-    block_dependencies: HashMap<BlockIndex, Vec<CheckBlockId>>,
+    adjacent_check_blocks: HashMap<BlockIndex, Vec<CheckBlockId>>,
     decode_stack: Vec<(CheckBlockId, &'a [u8])>,
+    aux_decode_stack: Vec<BlockIndex>,
 }
 
 impl<'a> Decoder<'a> {
@@ -210,18 +215,31 @@ impl<'a> Decoder<'a> {
                     self.blocks_decoded[target_block_index] = true;
                     if target_block_index < self.num_blocks {
                         self.num_undecoded_data_blocks -= 1;
+                    } else {
+                        // Decoded an aux block.
+                        // If that aux block can be used to decode a data block, schedule it for
+                        // decoding.
+                        if let Some((remaining_degree, _)) =
+                            self.aux_block_adjacencies.get_mut(&target_block_index)
+                        {
+                            *remaining_degree -= 1;
+                            if *remaining_degree == 1 {
+                                self.aux_decode_stack.push(target_block_index);
+                            }
+                        }
                     }
-                    if let Some(dependencies) = self.block_dependencies.remove(&target_block_index)
+                    if let Some(adjacent_check_block_ids) =
+                        self.adjacent_check_blocks.remove(&target_block_index)
                     {
-                        for depending_block_id in dependencies {
+                        for check_block_id in adjacent_check_block_ids {
                             if let Entry::Occupied(mut unused_block_entry) =
-                                self.unused_check_blocks.entry(depending_block_id)
+                                self.unused_check_blocks.entry(check_block_id)
                             {
                                 let remaining_degree = &mut unused_block_entry.get_mut().0;
                                 *remaining_degree -= 1;
                                 if *remaining_degree == 1 {
                                     self.decode_stack
-                                        .push((depending_block_id, unused_block_entry.remove().1));
+                                        .push((check_block_id, unused_block_entry.remove().1));
                                 }
                             }
                         }
@@ -231,7 +249,7 @@ impl<'a> Decoder<'a> {
                     self.unused_check_blocks
                         .insert(check_block_id, (degree, check_block));
                     for block_index in adjacent_blocks {
-                        self.block_dependencies
+                        self.adjacent_check_blocks
                             .entry(block_index)
                             .or_default()
                             .push(check_block_id) // TODO: consider switching to storing pointers
@@ -239,15 +257,13 @@ impl<'a> Decoder<'a> {
                 }
             }
         }
-        for aux_block_index in self.num_blocks..self.num_augmented_blocks {
-            if !self.blocks_decoded[aux_block_index] {
-                continue;
-            }
 
-            let adjacent_blocks = self.aux_block_adjacencies.get(&aux_block_index).unwrap();
+        while let Some(aux_block_index) = self.aux_decode_stack.pop() {
+            // TODO: refactor
+            let adjacent_blocks = &self.aux_block_adjacencies.get(&aux_block_index).unwrap().1;
             if let Some(decoded_block_id) = decode_aux_block(
                 aux_block_index,
-                &adjacent_blocks,
+                adjacent_blocks,
                 &mut self.augmented_data,
                 self.block_size,
                 &self.blocks_decoded,
@@ -256,6 +272,7 @@ impl<'a> Decoder<'a> {
                 self.num_undecoded_data_blocks -= 1;
             }
         }
+
         self.num_undecoded_data_blocks == 0
     }
 
