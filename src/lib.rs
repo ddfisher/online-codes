@@ -132,13 +132,13 @@ impl OnlineCoder {
     pub fn decode<'a>(&self, num_blocks: usize, stream_id: StreamId) -> Decoder {
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
         let num_augmented_blocks = num_blocks + num_aux_blocks;
-        let aux_block_adjacencies =
+        let unused_aux_block_adjacencies =
             self.get_aux_block_adjacencies(stream_id, num_blocks, num_aux_blocks);
         Decoder {
             num_blocks,
             num_augmented_blocks: num_blocks + num_aux_blocks,
             block_size: self.block_size,
-            aux_block_adjacencies,
+            unused_aux_block_adjacencies,
             degree_distribution: make_degree_distribution(self.epsilon),
 
             augmented_data: vec![0; num_augmented_blocks * self.block_size],
@@ -176,7 +176,7 @@ pub struct Decoder<'a> {
     num_augmented_blocks: usize,
     block_size: usize,
     degree_distribution: WeightedIndex<f64>,
-    aux_block_adjacencies: HashMap<BlockIndex, (usize, Vec<BlockIndex>)>,
+    unused_aux_block_adjacencies: HashMap<BlockIndex, (usize, Vec<BlockIndex>)>,
 
     augmented_data: Vec<u8>,
     blocks_decoded: Vec<bool>,
@@ -184,7 +184,7 @@ pub struct Decoder<'a> {
     unused_check_blocks: HashMap<CheckBlockId, (usize, &'a [u8])>,
     adjacent_check_blocks: HashMap<BlockIndex, Vec<CheckBlockId>>,
     decode_stack: Vec<(CheckBlockId, &'a [u8])>,
-    aux_decode_stack: Vec<BlockIndex>,
+    aux_decode_stack: Vec<(BlockIndex, Vec<BlockIndex>)>,
 }
 
 impl<'a> Decoder<'a> {
@@ -219,12 +219,14 @@ impl<'a> Decoder<'a> {
                         // Decoded an aux block.
                         // If that aux block can be used to decode a data block, schedule it for
                         // decoding.
-                        if let Some((remaining_degree, _)) =
-                            self.aux_block_adjacencies.get_mut(&target_block_index)
+                        if let Entry::Occupied(mut unused_aux_entry) =
+                            self.unused_aux_block_adjacencies.entry(target_block_index)
                         {
+                            let remaining_degree = &mut unused_aux_entry.get_mut().0;
                             *remaining_degree -= 1;
                             if *remaining_degree == 1 {
-                                self.aux_decode_stack.push(target_block_index);
+                                self.aux_decode_stack
+                                    .push((target_block_index, unused_aux_entry.remove().1));
                             }
                         }
                     }
@@ -258,12 +260,10 @@ impl<'a> Decoder<'a> {
             }
         }
 
-        while let Some(aux_block_index) = self.aux_decode_stack.pop() {
-            // TODO: refactor
-            let adjacent_blocks = &self.aux_block_adjacencies.get(&aux_block_index).unwrap().1;
+        while let Some((aux_block_index, adjacent_blocks)) = self.aux_decode_stack.pop() {
             if let Some(decoded_block_id) = decode_aux_block(
                 aux_block_index,
-                adjacent_blocks,
+                &adjacent_blocks,
                 &mut self.augmented_data,
                 self.block_size,
                 &self.blocks_decoded,
