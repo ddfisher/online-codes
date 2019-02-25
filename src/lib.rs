@@ -18,6 +18,10 @@ enum UndecodedDegree {
     Many(usize), // number of blocks that haven't yet been decoded
 }
 
+// TODO: these should be larger types
+type StreamId = u64;
+type CheckBlockId = u64;
+
 pub struct OnlineCoder {
     block_size: usize,
     epsilon: f64,
@@ -37,10 +41,10 @@ impl OnlineCoder {
         }
     }
 
-    pub fn encode<'a>(&self, data: &'a [u8], seed: u64) -> BlockIter<'a> {
+    pub fn encode<'a>(&self, data: &'a [u8], stream_id: StreamId) -> BlockIter<'a> {
         assert!(data.len() % self.block_size == 0);
         trace!("data: {:X?}", data);
-        let aux_data = self.outer_encode(data, seed);
+        let aux_data = self.outer_encode(data, stream_id);
         trace!("aux data: {:X?}", data);
         self.inner_encode(data, aux_data)
     }
@@ -49,11 +53,11 @@ impl OnlineCoder {
         (0.55f64 * self.q as f64 * self.epsilon * num_blocks as f64).ceil() as usize
     }
 
-    fn outer_encode(&self, data: &[u8], seed: u64) -> Vec<u8> {
+    fn outer_encode(&self, data: &[u8], stream_id: StreamId) -> Vec<u8> {
         let num_blocks = data.len() / self.block_size;
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
         let mut aux_data = vec![0; num_aux_blocks * self.block_size];
-        let mut rng = Xoshiro256StarStar::seed_from_u64(seed);
+        let mut rng = Xoshiro256StarStar::seed_from_u64(stream_id);
         for block in data.chunks_exact(self.block_size) {
             for aux_index in sample_with_exclusive_repeats(&mut rng, num_aux_blocks, self.q) {
                 xor_block(
@@ -82,7 +86,7 @@ pub struct BlockIter<'a> {
     aux_data: Vec<u8>,
     block_size: usize,
     degree_distribution: WeightedIndex<f64>,
-    block_id: u64, // TODO: this should be a larger size type
+    block_id: CheckBlockId,
 }
 
 impl<'a> Iterator for BlockIter<'a> {
@@ -124,11 +128,11 @@ impl<'a> Iterator for BlockIter<'a> {
 
 impl OnlineCoder {
     // TODO: implement in a vaguely optimized way
-    pub fn decode<'a>(&self, num_blocks: usize, seed: u64) -> Decoder {
+    pub fn decode<'a>(&self, num_blocks: usize, stream_id: StreamId) -> Decoder {
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
         let num_augmented_blocks = num_blocks + num_aux_blocks;
         let aux_block_associations =
-            self.get_aux_block_associations(seed, num_blocks, num_aux_blocks);
+            self.get_aux_block_associations(stream_id, num_blocks, num_aux_blocks);
         Decoder {
             num_blocks,
             num_augmented_blocks: num_blocks + num_aux_blocks,
@@ -147,12 +151,12 @@ impl OnlineCoder {
 
     fn get_aux_block_associations(
         &self,
-        seed: u64,
+        stream_id: StreamId,
         num_blocks: usize,
         num_auxiliary_blocks: usize,
     ) -> HashMap<usize, Vec<usize>> {
         let mut mapping: HashMap<usize, Vec<usize>> = HashMap::new();
-        let mut rng = Xoshiro256StarStar::seed_from_u64(seed);
+        let mut rng = Xoshiro256StarStar::seed_from_u64(stream_id);
         for i in 0..num_blocks {
             for aux_index in sample_with_exclusive_repeats(&mut rng, num_auxiliary_blocks, self.q) {
                 mapping.entry(aux_index + num_blocks).or_default().push(i);
@@ -172,13 +176,13 @@ pub struct Decoder<'a> {
     augmented_data: Vec<u8>,
     blocks_decoded: Vec<bool>,
     num_undecoded_data_blocks: usize,
-    unused_check_blocks: HashMap<u64, (usize, &'a [u8])>,
-    block_dependencies: HashMap<usize, Vec<u64>>,
-    decode_stack: Vec<(u64, &'a [u8])>,
+    unused_check_blocks: HashMap<CheckBlockId, (usize, &'a [u8])>,
+    block_dependencies: HashMap<usize, Vec<CheckBlockId>>,
+    decode_stack: Vec<(CheckBlockId, &'a [u8])>,
 }
 
 impl<'a> Decoder<'a> {
-    pub fn decode_chunk(&mut self, check_block_id: u64, check_block: &'a [u8]) -> bool {
+    pub fn decode_chunk(&mut self, check_block_id: CheckBlockId, check_block: &'a [u8]) -> bool {
         // TODO: consider if this should take in a slice or a Vec
         // TODO: consider if this function should copy the slice if need be so it's not required to
         // live for the lifetime of the decoder
@@ -362,12 +366,12 @@ fn xor_block(dest: &mut [u8], src: &[u8], block_size: usize) {
 }
 
 // TODO: return an iterator instead
-// TODO: there should be more involved with block_id
 fn get_associated_blocks(
-    block_id: u64,
+    block_id: CheckBlockId,
     degree_distribution: &WeightedIndex<f64>,
     num_blocks: usize,
 ) -> Vec<usize> {
+    // TODO: this should use the stream id too
     let mut rng = Xoshiro256StarStar::seed_from_u64(block_id);
     let degree = 1 + degree_distribution.sample(&mut rng);
     sample_with_exclusive_repeats(&mut rng, num_blocks, degree)
