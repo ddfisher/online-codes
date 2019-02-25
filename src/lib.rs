@@ -96,16 +96,16 @@ impl<'a> Iterator for BlockIter<'a> {
         let num_blocks = self.data.len() / self.block_size;
         let num_aux_blocks = self.aux_data.len() / self.block_size;
         let mut check_block = vec![0; self.block_size];
-        let associated_blocks = get_associated_blocks(
+        let adjacent_blocks = get_adjacent_blocks(
             self.check_block_id,
             &self.degree_distribution,
             num_blocks + num_aux_blocks,
         );
         trace!(
-            "encoding check block from associated blocks {:?}",
-            associated_blocks
+            "encoding check block from adjacent blocks {:?}",
+            adjacent_blocks
         );
-        for block_index in associated_blocks {
+        for block_index in adjacent_blocks {
             if block_index < num_blocks {
                 xor_block(
                     &mut check_block,
@@ -132,13 +132,13 @@ impl OnlineCoder {
     pub fn decode<'a>(&self, num_blocks: usize, stream_id: StreamId) -> Decoder {
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
         let num_augmented_blocks = num_blocks + num_aux_blocks;
-        let aux_block_associations =
-            self.get_aux_block_associations(stream_id, num_blocks, num_aux_blocks);
+        let aux_block_adjacencies =
+            self.get_aux_block_adjacencies(stream_id, num_blocks, num_aux_blocks);
         Decoder {
             num_blocks,
             num_augmented_blocks: num_blocks + num_aux_blocks,
             block_size: self.block_size,
-            aux_block_associations,
+            aux_block_adjacencies,
             degree_distribution: make_degree_distribution(self.epsilon),
 
             augmented_data: vec![0; num_augmented_blocks * self.block_size],
@@ -150,7 +150,7 @@ impl OnlineCoder {
         }
     }
 
-    fn get_aux_block_associations(
+    fn get_aux_block_adjacencies(
         &self,
         stream_id: StreamId,
         num_blocks: usize,
@@ -172,7 +172,7 @@ pub struct Decoder<'a> {
     num_augmented_blocks: usize,
     block_size: usize,
     degree_distribution: WeightedIndex<f64>,
-    aux_block_associations: HashMap<BlockIndex, Vec<BlockIndex>>,
+    aux_block_adjacencies: HashMap<BlockIndex, Vec<BlockIndex>>,
 
     augmented_data: Vec<u8>,
     blocks_decoded: Vec<bool>,
@@ -192,26 +192,27 @@ impl<'a> Decoder<'a> {
         self.decode_stack.push((check_block_id, check_block));
 
         while let Some((check_block_id, check_block)) = self.decode_stack.pop() {
-            let associated_block_ids = get_associated_blocks(
+            let adjacent_blocks = get_adjacent_blocks(
                 check_block_id,
                 &self.degree_distribution,
                 self.num_augmented_blocks,
             );
-            match undecoded_degree(&associated_block_ids, &self.blocks_decoded) {
+            match undecoded_degree(&adjacent_blocks, &self.blocks_decoded) {
                 UndecodedDegree::Zero => { /* This check block contains no new information. */ }
-                UndecodedDegree::One(target_block_id) => {
+                UndecodedDegree::One(target_block_index) => {
                     decode_from_check_block(
-                        target_block_id,
+                        target_block_index,
                         check_block,
-                        &associated_block_ids,
+                        &adjacent_blocks,
                         &mut self.augmented_data,
                         self.block_size,
                     );
-                    self.blocks_decoded[target_block_id] = true;
-                    if target_block_id < self.num_blocks {
+                    self.blocks_decoded[target_block_index] = true;
+                    if target_block_index < self.num_blocks {
                         self.num_undecoded_data_blocks -= 1;
                     }
-                    if let Some(dependencies) = self.block_dependencies.remove(&target_block_id) {
+                    if let Some(dependencies) = self.block_dependencies.remove(&target_block_index)
+                    {
                         for depending_block_id in dependencies {
                             if let Entry::Occupied(mut unused_block_entry) =
                                 self.unused_check_blocks.entry(depending_block_id)
@@ -229,24 +230,24 @@ impl<'a> Decoder<'a> {
                 UndecodedDegree::Many(degree) => {
                     self.unused_check_blocks
                         .insert(check_block_id, (degree, check_block));
-                    for associated_block_id in associated_block_ids {
+                    for block_index in adjacent_blocks {
                         self.block_dependencies
-                            .entry(associated_block_id)
+                            .entry(block_index)
                             .or_default()
                             .push(check_block_id) // TODO: consider switching to storing pointers
                     }
                 }
             }
         }
-        for aux_block_id in self.num_blocks..self.num_augmented_blocks {
-            if !self.blocks_decoded[aux_block_id] {
+        for aux_block_index in self.num_blocks..self.num_augmented_blocks {
+            if !self.blocks_decoded[aux_block_index] {
                 continue;
             }
 
-            let associated_block_ids = self.aux_block_associations.get(&aux_block_id).unwrap();
+            let adjacent_blocks = self.aux_block_adjacencies.get(&aux_block_index).unwrap();
             if let Some(decoded_block_id) = decode_aux_block(
-                aux_block_id,
-                &associated_block_ids,
+                aux_block_index,
+                &adjacent_blocks,
                 &mut self.augmented_data,
                 self.block_size,
                 &self.blocks_decoded,
@@ -270,58 +271,58 @@ impl<'a> Decoder<'a> {
 }
 
 fn decode_from_check_block(
-    target_block_id: BlockIndex,
+    target_block_index: BlockIndex,
     check_block: &[u8],
-    associated_block_ids: &[BlockIndex],
+    adjacent_blocks: &[BlockIndex],
     augmented_data: &mut [u8],
     block_size: usize,
 ) {
     xor_block(
-        &mut augmented_data[target_block_id * block_size..],
+        &mut augmented_data[target_block_index * block_size..],
         check_block,
         block_size,
     );
-    xor_associated_blocks(
-        target_block_id,
-        associated_block_ids,
+    xor_adjacent_blocks(
+        target_block_index,
+        adjacent_blocks,
         augmented_data,
         block_size,
     );
 }
 
 fn decode_aux_block(
-    aux_block_id: BlockIndex,
-    associated_block_ids: &[BlockIndex],
+    index: BlockIndex,
+    adjacent_blocks: &[BlockIndex],
     augmented_data: &mut [u8],
     block_size: usize,
     blocks_decoded: &[bool],
 ) -> Option<BlockIndex> {
-    block_to_decode(associated_block_ids, blocks_decoded).map(|target_block_id| {
+    block_to_decode(adjacent_blocks, blocks_decoded).map(|target_block_index| {
         for i in 0..block_size {
-            augmented_data[target_block_id * block_size + i] ^=
-                augmented_data[aux_block_id * block_size + i];
+            augmented_data[target_block_index * block_size + i] ^=
+                augmented_data[index * block_size + i];
         }
-        xor_associated_blocks(
-            target_block_id,
-            associated_block_ids,
+        xor_adjacent_blocks(
+            target_block_index,
+            adjacent_blocks,
             augmented_data,
             block_size,
         );
-        target_block_id
+        target_block_index
     })
 }
 
-fn xor_associated_blocks(
-    target_block_id: BlockIndex,
-    associated_block_ids: &[BlockIndex],
+fn xor_adjacent_blocks(
+    target_block_index: BlockIndex,
+    adjacent_blocks: &[BlockIndex],
     augmented_data: &mut [u8],
     block_size: usize,
 ) {
-    for associated_block_id in associated_block_ids {
-        if *associated_block_id != target_block_id {
+    for block_index in adjacent_blocks {
+        if *block_index != target_block_index {
             for i in 0..block_size {
-                augmented_data[target_block_id * block_size + i] ^=
-                    augmented_data[associated_block_id * block_size + i];
+                augmented_data[target_block_index * block_size + i] ^=
+                    augmented_data[block_index * block_size + i];
             }
         }
     }
@@ -366,7 +367,7 @@ fn xor_block(dest: &mut [u8], src: &[u8], block_size: usize) {
 }
 
 // TODO: return an iterator instead
-fn get_associated_blocks(
+fn get_adjacent_blocks(
     check_block_id: CheckBlockId,
     degree_distribution: &WeightedIndex<f64>,
     num_blocks: usize,
@@ -377,34 +378,28 @@ fn get_associated_blocks(
     sample_with_exclusive_repeats(&mut rng, num_blocks, degree)
 }
 
-fn block_to_decode(
-    associated_block_ids: &[BlockIndex],
-    block_decoded: &[bool],
-) -> Option<BlockIndex> {
-    // If exactly one of the associated blocks is not yet decoded, return the id of that block.
+fn block_to_decode(adjacent_blocks: &[BlockIndex], block_decoded: &[bool]) -> Option<BlockIndex> {
+    // If exactly one of the adjacent blocks is not yet decoded, return the id of that block.
     let mut to_decode = None;
-    for block_id in associated_block_ids {
-        if !block_decoded[*block_id] {
+    for block_index in adjacent_blocks {
+        if !block_decoded[*block_index] {
             if to_decode.is_some() {
                 return None;
             }
-            to_decode = Some(*block_id)
+            to_decode = Some(*block_index)
         }
     }
 
     return to_decode;
 }
 
-fn undecoded_degree(
-    associated_block_ids: &[BlockIndex],
-    blocks_decoded: &[bool],
-) -> UndecodedDegree {
-    // If exactly one of the associated blocks is not yet decoded, return the id of that block.
+fn undecoded_degree(adjacent_block_ids: &[BlockIndex], blocks_decoded: &[bool]) -> UndecodedDegree {
+    // If exactly one of the adjacent blocks is not yet decoded, return the id of that block.
     let mut degree = UndecodedDegree::Zero;
-    for block_id in associated_block_ids {
-        if !blocks_decoded[*block_id] {
+    for block_index in adjacent_block_ids {
+        if !blocks_decoded[*block_index] {
             degree = match degree {
-                UndecodedDegree::Zero => UndecodedDegree::One(*block_id),
+                UndecodedDegree::Zero => UndecodedDegree::One(*block_index),
                 UndecodedDegree::One(_) => UndecodedDegree::Many(2),
                 UndecodedDegree::Many(n) => UndecodedDegree::Many(n + 1),
             }
