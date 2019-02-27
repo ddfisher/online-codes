@@ -4,8 +4,15 @@ use rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
+// TODO: change return type of decode_block; find way to handle calls after decoding has finished
+// TODO: use larger seeds for the PRNG
 // TODO: write tests with proptest
-// write benchmarks
+// TODO: write benchmarks with criterion
+// TODO: profile and fix low-hanging fruit
+// TODO: reorder functions
+// TODO: make a minor code cleanup pass
+// TODO: write docs
+// TODO: remove main.rs
 
 enum UndecodedDegree {
     Zero,
@@ -123,7 +130,6 @@ impl<'a> Iterator for BlockIter<'a> {
 }
 
 impl OnlineCoder {
-    // TODO: implement in a vaguely optimized way
     pub fn decode<'a>(&self, num_blocks: usize, stream_id: StreamId) -> Decoder {
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
         let num_augmented_blocks = num_blocks + num_aux_blocks;
@@ -189,10 +195,6 @@ pub struct Decoder<'a> {
 
 impl<'a> Decoder<'a> {
     pub fn decode_block(&mut self, check_block_id: CheckBlockId, check_block: &'a [u8]) -> bool {
-        // TODO: consider if this should take in a slice or a Vec
-        // TODO: consider if this function should copy the slice if need be so it's not required to
-        // live for the lifetime of the decoder
-
         // TODO: don't immediately push then pop off the decode stack
         self.decode_stack.push((check_block_id, check_block));
 
@@ -254,7 +256,7 @@ impl<'a> Decoder<'a> {
                         self.adjacent_check_blocks
                             .entry(block_index)
                             .or_default()
-                            .push(check_block_id) // TODO: consider switching to storing pointers
+                            .push(check_block_id)
                     }
                 }
             }
@@ -404,7 +406,6 @@ fn xor_block(dest: &mut [u8], src: &[u8], block_size: usize) {
     }
 }
 
-// TODO: return an iterator instead
 fn get_adjacent_blocks(
     check_block_id: CheckBlockId,
     degree_distribution: &WeightedIndex<f64>,
