@@ -166,6 +166,11 @@ impl OnlineCoder {
     }
 }
 
+pub enum DecodeResult<'a> {
+    Complete(Vec<u8>),
+    InProgress(Decoder<'a>),
+}
+
 pub struct Decoder<'a> {
     num_blocks: usize,
     num_augmented_blocks: usize,
@@ -183,7 +188,7 @@ pub struct Decoder<'a> {
 }
 
 impl<'a> Decoder<'a> {
-    pub fn decode_chunk(&mut self, check_block_id: CheckBlockId, check_block: &'a [u8]) -> bool {
+    pub fn decode_block(&mut self, check_block_id: CheckBlockId, check_block: &'a [u8]) -> bool {
         // TODO: consider if this should take in a slice or a Vec
         // TODO: consider if this function should copy the slice if need be so it's not required to
         // live for the lifetime of the decoder
@@ -278,6 +283,27 @@ impl<'a> Decoder<'a> {
             Some(self.augmented_data)
         } else {
             None
+        }
+    }
+
+    pub fn from_iter<T>(mut self, iter: T) -> DecodeResult<'a>
+    where
+        T: IntoIterator<Item = (CheckBlockId, &'a [u8])>,
+    {
+        for (check_block_id, check_block) in iter {
+            if self.decode_block(check_block_id, check_block) {
+                return DecodeResult::Complete(self.get_result().unwrap());
+            }
+        }
+        return DecodeResult::InProgress(self);
+    }
+}
+
+impl<'a> DecodeResult<'a> {
+    pub fn complete(self) -> Option<Vec<u8>> {
+        match self {
+            DecodeResult::Complete(v) => Some(v),
+            DecodeResult::InProgress(_) => None,
         }
     }
 }

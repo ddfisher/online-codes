@@ -19,7 +19,8 @@ fn main() {
          its long shadow.";
     // let message = "this is a test";
     // let message = "01";
-    let data: Vec<u8> = message.repeat(1).as_bytes().iter().map(|x| *x).collect();
+    let data: Vec<u8> = message.repeat(1).as_bytes().iter().cloned().collect();
+    // let data: Vec<u8> = Vec::new();
     // let data: Vec<u8> = (0..100).collect();
     // dbg!(&data);
     let seed = 0xDEADBEEF;
@@ -31,14 +32,15 @@ fn main() {
     for mut chunk in coder.encode(&data, seed).take(num_blocks + 500) {
         encoded_data.append(&mut chunk);
     }
-    let mut decoder = coder.decode(num_blocks, seed);
-    for (check_block_id, check_block) in (0..).zip(encoded_data.chunks_exact(block_size)) {
-        if decoder.decode_chunk(check_block_id, check_block) {
-            let decoded_message = decoder.get_result().unwrap();
-            println!("Decoding complete with check block {}", check_block_id);
-            println!("{:?}", std::str::from_utf8(&decoded_message));
-            break;
-        }
+    let encoding_iter = (0..).zip(encoded_data.chunks_exact(block_size));
+    if let Some(decoded_message) = coder
+        .decode(num_blocks, seed)
+        .from_iter(encoding_iter)
+        .complete()
+    {
+        println!("Decoding complete");
+        println!("{:?}", std::str::from_utf8(&decoded_message).unwrap());
+    } else {
+        println!("Decoding did not succeed.")
     }
-    // let _: Vec<(usize, u8)> = dbg!(decoded_message.into_iter().enumerate().collect());
 }
