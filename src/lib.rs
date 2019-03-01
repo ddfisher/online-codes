@@ -4,7 +4,6 @@ use rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
-// TODO: change return type of decode_block; find way to handle calls after decoding has finished
 // TODO: use larger seeds for the PRNG
 // TODO: write tests with proptest
 // TODO: write benchmarks with criterion
@@ -194,7 +193,16 @@ pub struct Decoder<'a> {
 }
 
 impl<'a> Decoder<'a> {
-    pub fn decode_block(&mut self, check_block_id: CheckBlockId, check_block: &'a [u8]) -> bool {
+    pub fn decode_block(
+        &mut self,
+        check_block_id: CheckBlockId,
+        check_block: &'a [u8],
+    ) -> Option<Vec<u8>> {
+        if self.num_undecoded_data_blocks == 0 {
+            // Decoding has already finished and the decoded data has already been returned.
+            return None;
+        }
+
         // TODO: don't immediately push then pop off the decode stack
         self.decode_stack.push((check_block_id, check_block));
 
@@ -275,16 +283,14 @@ impl<'a> Decoder<'a> {
             }
         }
 
-        self.num_undecoded_data_blocks == 0
-    }
-
-    pub fn get_result(mut self) -> Option<Vec<u8>> {
         if self.num_undecoded_data_blocks == 0 {
-            self.augmented_data
-                .truncate(self.block_size * self.num_blocks);
-            Some(self.augmented_data)
+            // Decoding finished -- return decoded data.
+            let mut decoded_data = std::mem::replace(&mut self.augmented_data, Vec::new());
+            decoded_data.truncate(self.block_size * self.num_blocks);
+            return Some(decoded_data);
         } else {
-            None
+            // Decoding not yet complete.
+            return None;
         }
     }
 
@@ -293,11 +299,25 @@ impl<'a> Decoder<'a> {
         T: IntoIterator<Item = (CheckBlockId, &'a [u8])>,
     {
         for (check_block_id, check_block) in iter {
-            if self.decode_block(check_block_id, check_block) {
-                return DecodeResult::Complete(self.get_result().unwrap());
+            if let Some(decoded_data) = self.decode_block(check_block_id, check_block) {
+                return DecodeResult::Complete(decoded_data);
             }
         }
         return DecodeResult::InProgress(self);
+    }
+
+    pub fn get_incomplete_result(&self) -> (&[bool], &[u8]) {
+        (
+            &self.blocks_decoded[0..self.num_blocks],
+            &self.augmented_data[0..self.block_size * self.num_blocks],
+        )
+    }
+
+    pub fn into_incomplete_result(mut self) -> (Vec<bool>, Vec<u8>) {
+        self.blocks_decoded.truncate(self.num_blocks);
+        self.augmented_data
+            .truncate(self.num_blocks * self.block_size);
+        (self.blocks_decoded, self.augmented_data)
     }
 }
 
