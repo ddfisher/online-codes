@@ -1,4 +1,3 @@
-use log::trace;
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
 use rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256StarStar;
@@ -11,7 +10,6 @@ use std::collections::{hash_map::Entry, HashMap, HashSet};
 // TODO: profile and fix low-hanging fruit
 // TODO: reorder functions
 // TODO: make a minor code cleanup pass
-// TODO: remove unnecessary logging
 // TODO: write docs
 // TODO: remove main.rs
 
@@ -47,9 +45,7 @@ impl OnlineCoder {
 
     pub fn encode<'a>(&self, data: &'a [u8], stream_id: StreamId) -> BlockIter<'a> {
         assert!(data.len() % self.block_size == 0);
-        trace!("data: {:X?}", data);
         let aux_data = self.outer_encode(data, stream_id);
-        trace!("aux data: {:X?}", data);
         self.inner_encode(data, aux_data, stream_id)
     }
 
@@ -111,10 +107,6 @@ impl<'a> Iterator for BlockIter<'a> {
             self.stream_id,
             &self.degree_distribution,
             num_blocks + num_aux_blocks,
-        );
-        trace!(
-            "encoding check block from adjacent blocks {:?}",
-            adjacent_blocks
         );
         for block_index in adjacent_blocks {
             if block_index < num_blocks {

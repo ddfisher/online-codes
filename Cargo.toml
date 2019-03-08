@@ -5,7 +5,6 @@ name = "online_codes"
 version = "0.1.0"
 [dependencies]
 env_logger = "*"
-log = "*"
 rand = "*"
 rand_core = "*"
 rand_xoshiro = "*"
