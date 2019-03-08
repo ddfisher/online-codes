@@ -5,11 +5,13 @@ use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 // TODO: use larger seeds for the PRNG
+// TODO: allow specification of starting block_id
 // TODO: write tests with proptest
 // TODO: write benchmarks with criterion
 // TODO: profile and fix low-hanging fruit
 // TODO: reorder functions
 // TODO: make a minor code cleanup pass
+// TODO: remove unnecessary logging
 // TODO: write docs
 // TODO: remove main.rs
 
@@ -19,7 +21,7 @@ enum UndecodedDegree {
     Many(usize),     // number of blocks that haven't yet been decoded
 }
 
-// TODO: the IDs should be larger types
+// TODO: the IDs should be u128
 type StreamId = u64;
 type CheckBlockId = u64;
 type BlockIndex = usize;
@@ -48,7 +50,7 @@ impl OnlineCoder {
         trace!("data: {:X?}", data);
         let aux_data = self.outer_encode(data, stream_id);
         trace!("aux data: {:X?}", data);
-        self.inner_encode(data, aux_data)
+        self.inner_encode(data, aux_data, stream_id)
     }
 
     fn num_aux_blocks(&self, num_blocks: usize) -> usize {
@@ -59,7 +61,7 @@ impl OnlineCoder {
         let num_blocks = data.len() / self.block_size;
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
         let mut aux_data = vec![0; num_aux_blocks * self.block_size];
-        let mut rng = Xoshiro256StarStar::seed_from_u64(stream_id);
+        let mut rng = seed_stream_rng(stream_id);
         for block in data.chunks_exact(self.block_size) {
             for aux_index in sample_with_exclusive_repeats(&mut rng, num_aux_blocks, self.q) {
                 xor_block(
@@ -72,13 +74,19 @@ impl OnlineCoder {
         aux_data
     }
 
-    fn inner_encode<'a>(&self, data: &'a [u8], aux_data: Vec<u8>) -> BlockIter<'a> {
+    fn inner_encode<'a>(
+        &self,
+        data: &'a [u8],
+        aux_data: Vec<u8>,
+        stream_id: StreamId,
+    ) -> BlockIter<'a> {
         BlockIter {
             data,
             aux_data,
             block_size: self.block_size,
             degree_distribution: make_degree_distribution(self.epsilon),
             check_block_id: 0,
+            stream_id,
         }
     }
 }
@@ -89,6 +97,7 @@ pub struct BlockIter<'a> {
     block_size: usize,
     degree_distribution: WeightedIndex<f64>,
     check_block_id: CheckBlockId,
+    stream_id: StreamId,
 }
 
 impl<'a> Iterator for BlockIter<'a> {
@@ -99,6 +108,7 @@ impl<'a> Iterator for BlockIter<'a> {
         let mut check_block = vec![0; self.block_size];
         let adjacent_blocks = get_adjacent_blocks(
             self.check_block_id,
+            self.stream_id,
             &self.degree_distribution,
             num_blocks + num_aux_blocks,
         );
@@ -140,6 +150,7 @@ impl OnlineCoder {
             block_size: self.block_size,
             unused_aux_block_adjacencies,
             degree_distribution: make_degree_distribution(self.epsilon),
+            stream_id,
 
             augmented_data: vec![0; num_augmented_blocks * self.block_size],
             blocks_decoded: vec![false; num_augmented_blocks],
@@ -158,7 +169,7 @@ impl OnlineCoder {
         num_auxiliary_blocks: usize,
     ) -> HashMap<BlockIndex, (usize, Vec<BlockIndex>)> {
         let mut mapping: HashMap<BlockIndex, (usize, Vec<BlockIndex>)> = HashMap::new();
-        let mut rng = Xoshiro256StarStar::seed_from_u64(stream_id);
+        let mut rng = seed_stream_rng(stream_id);
         for i in 0..num_blocks {
             for aux_index in sample_with_exclusive_repeats(&mut rng, num_auxiliary_blocks, self.q) {
                 // TODO: clean up a bit
@@ -181,6 +192,7 @@ pub struct Decoder<'a> {
     num_augmented_blocks: usize,
     block_size: usize,
     degree_distribution: WeightedIndex<f64>,
+    stream_id: StreamId,
     unused_aux_block_adjacencies: HashMap<BlockIndex, (usize, Vec<BlockIndex>)>,
 
     augmented_data: Vec<u8>,
@@ -209,6 +221,7 @@ impl<'a> Decoder<'a> {
         while let Some((check_block_id, check_block)) = self.decode_stack.pop() {
             let adjacent_blocks = get_adjacent_blocks(
                 check_block_id,
+                self.stream_id,
                 &self.degree_distribution,
                 self.num_augmented_blocks,
             );
@@ -426,13 +439,23 @@ fn xor_block(dest: &mut [u8], src: &[u8], block_size: usize) {
     }
 }
 
+fn seed_stream_rng(stream_id: StreamId) -> Xoshiro256StarStar {
+    seed_block_rng(stream_id, 0)
+}
+
+// TODO: don't lose bits when combining the stream id and block id
+fn seed_block_rng(stream_id: StreamId, check_block_id: CheckBlockId) -> Xoshiro256StarStar {
+    // Make sure the seed is a good, even mix of 0's and 1's.
+    Xoshiro256StarStar::seed_from_u64(check_block_id.wrapping_add(stream_id))
+}
+
 fn get_adjacent_blocks(
     check_block_id: CheckBlockId,
+    stream_id: StreamId,
     degree_distribution: &WeightedIndex<f64>,
     num_blocks: usize,
 ) -> Vec<BlockIndex> {
-    // TODO: this should use the stream id too
-    let mut rng = Xoshiro256StarStar::seed_from_u64(check_block_id);
+    let mut rng = seed_block_rng(stream_id, check_block_id);
     let degree = 1 + degree_distribution.sample(&mut rng);
     sample_with_exclusive_repeats(&mut rng, num_blocks, degree)
 }
