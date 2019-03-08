@@ -1,4 +1,4 @@
-use on_line_codes::OnlineCoder;
+use online_codes::OnlineCoder;
 fn main() {
     env_logger::init();
 
