@@ -9,6 +9,9 @@ readme = "README.md"
 keywords = ["erasure", "fountain", "online", "code"]
 categories = ["encoding"]
 license = "MIT"
+exclude = [
+    "*.pdf",
+]
 
 [dependencies]
 env_logger = "*"
