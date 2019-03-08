@@ -14,7 +14,6 @@ exclude = [
 ]
 
 [dependencies]
-env_logger = "*"
-rand = "*"
-rand_core = "*"
-rand_xoshiro = "*"
+rand = "0.6"
+rand_core = "0.3"
+rand_xoshiro = "0.1"
