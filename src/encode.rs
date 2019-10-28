@@ -122,8 +122,8 @@ impl OnlineCoder {
 }
 
 impl<'a> Iterator for BlockIter<'a> {
-    type Item = Vec<u8>;
-    fn next(&mut self) -> Option<Vec<u8>> {
+    type Item = (CheckBlockId, Vec<u8>);
+    fn next(&mut self) -> Option<(CheckBlockId, Vec<u8>)> {
         let num_blocks = self.data.len() / self.block_size;
         let num_aux_blocks = self.aux_data.len() / self.block_size;
         let mut check_block = vec![0; self.block_size];
@@ -151,7 +151,7 @@ impl<'a> Iterator for BlockIter<'a> {
         }
 
         self.check_block_id += 1;
-        Some(check_block)
+        Some((self.check_block_id - 1, check_block))
     }
 }
 
