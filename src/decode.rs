@@ -137,10 +137,10 @@ impl<'a> Decoder<'a> {
             // Decoding finished -- return decoded data.
             let mut decoded_data = std::mem::replace(&mut self.augmented_data, Vec::new());
             decoded_data.truncate(self.block_size * self.num_blocks);
-            return Some(decoded_data);
+            Some(decoded_data)
         } else {
             // Decoding not yet complete.
-            return None;
+            None
         }
     }
 
@@ -153,7 +153,7 @@ impl<'a> Decoder<'a> {
                 return DecodeResult::Complete(decoded_data);
             }
         }
-        return DecodeResult::InProgress(self);
+        DecodeResult::InProgress(self)
     }
 
     pub fn get_incomplete_result(&self) -> (&[bool], &[u8]) {
@@ -242,7 +242,7 @@ fn undecoded_degree(adjacent_block_ids: &[BlockIndex], blocks_decoded: &[bool]) 
         }
     }
 
-    return degree;
+    degree
 }
 
 fn block_to_decode(adjacent_blocks: &[BlockIndex], block_decoded: &[bool]) -> Option<BlockIndex> {
@@ -257,6 +257,6 @@ fn block_to_decode(adjacent_blocks: &[BlockIndex], block_decoded: &[bool]) -> Op
         }
     }
 
-    return to_decode;
+    to_decode
 }
 

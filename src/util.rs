@@ -42,5 +42,5 @@ pub fn sample_with_exclusive_repeats(
         }
     }
 
-    return selected.into_iter().collect();
+    selected.into_iter().collect()
 }
