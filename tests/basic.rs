@@ -1,6 +1,6 @@
 extern crate online_codes;
 
-use online_codes::encode::online_coder::OnlineCoder;
+use online_codes::encode::OnlineCoder;
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 
