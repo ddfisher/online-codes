@@ -5,6 +5,7 @@ use crate::decode::Decoder;
 use crate::util::{sample_with_exclusive_repeats, xor_block, seed_block_rng, get_adjacent_blocks};
 use crate::types::{StreamId, BlockIndex, CheckBlockId};
 
+#[derive(Debug)]
 pub struct OnlineCoder {
     block_size: usize,
     epsilon: f64,
