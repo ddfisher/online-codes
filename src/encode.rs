@@ -12,6 +12,7 @@ pub struct OnlineCoder {
     q: usize,
 }
 
+#[derive(Debug)]
 pub struct BlockIter<'a> {
     pub data: &'a [u8],
     pub aux_data: Vec<u8>,

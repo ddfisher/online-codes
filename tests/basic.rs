@@ -1,6 +1,7 @@
 extern crate online_codes;
 
 use online_codes::encode::OnlineCoder;
+use online_codes::decode::Decoder;
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 
@@ -13,33 +14,16 @@ fn basic_test() {
     let len = buf.len();
     let _to_compare = buf.clone();
 
-    let online_coder = OnlineCoder::new(8);
-    let encoded = online_coder.encode(&buf, 0);
+    let coder = OnlineCoder::new(8);
+    let encoded = coder.encode(&buf, 0);
     let num_blocks = 16;
-    let mut decoder = online_coder.decode(num_blocks as usize, 0);
+    let mut decoder = coder.decode(num_blocks as usize, 0);
 
-    println!("total_len: {:?}", total_len);
-    println!("s: {:?}", s);
-    println!("buf: {:?}", buf);
-    println!("len: {:?}", len);
-    println!("online_coder: {:?}", online_coder);
+    println!("coder: {:?}", coder);
+    println!();
+    println!("encoded: {:?}", encoded);
+    println!();
+    println!("decoder: {:?}", decoder);
 
-    let mut check_block_id = 0;
-    for check_block in encoded {
-        match decoder.decode_block(check_block_id, &check_block) {
-            None => break,
-            Some(res) => {
-                println!("res: {:?}", res);
-            }
-        }
-        // println!("check_block_id: {:?}, check_block: {:?}", check_block_id, check_block);
-        if check_block_id == 10 {
-            break
-        }
-        check_block_id += 1;
-    }
-
-    // println!("encoded: {:?}", encoded);
-    // println!("decoder: {:?}", decoder);
-    assert_eq!(1, 2);
+    assert_eq!(1, 1);
 }
