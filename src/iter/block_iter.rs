@@ -1,15 +1,5 @@
 use rand::distributions::WeightedIndex;
 
-// TODO: use larger seeds for the PRNG
-// TODO: allow specification of starting block_id
-// TODO: write tests with proptest
-// TODO: write benchmarks with criterion
-// TODO: profile and fix low-hanging fruit
-// TODO: reorder functions
-// TODO: make a minor code cleanup pass
-// TODO: write docs
-// TODO: remove main.rs
-
 use crate::typedef::types::{StreamId, CheckBlockId};
 use crate::util::helpers::{get_adjacent_blocks, xor_block};
 
