@@ -50,7 +50,6 @@ impl<'a> Decoder {
     ) -> Option<Vec<u8>> {
         if self.num_undecoded_data_blocks == 0 {
             // Decoding has already finished and the decoded data has already been returned.
-            println!("Decoding has already finished and the decoded data has already been returned");
             return None;
         }
 
@@ -145,7 +144,6 @@ impl<'a> Decoder {
             Some(decoded_data)
         } else {
             // Decoding not yet complete.
-            println!("Decoding not yet complete");
             None
         }
     }
