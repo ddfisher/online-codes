@@ -1,7 +1,7 @@
-pub mod encode;
-pub mod decode;
+pub mod online_coder;
+pub mod block_iter;
+pub mod decoder;
 pub mod types;
-pub mod util;
 
 // TODO: use larger seeds for the PRNG
 // TODO: allow specification of starting block_id
