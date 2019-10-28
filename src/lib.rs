@@ -1,5 +1,4 @@
 pub mod encode;
-pub mod iter;
 pub mod decode;
 pub mod types;
 pub mod util;

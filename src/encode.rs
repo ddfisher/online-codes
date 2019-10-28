@@ -2,14 +2,22 @@ use std::collections::HashMap;
 use rand::distributions::WeightedIndex;
 use rand_xoshiro::Xoshiro256StarStar;
 use crate::decode::Decoder;
-use crate::util::{sample_with_exclusive_repeats, xor_block, seed_block_rng};
-use crate::iter::BlockIter;
-use crate::types::{StreamId, BlockIndex};
+use crate::util::{sample_with_exclusive_repeats, xor_block, seed_block_rng, get_adjacent_blocks};
+use crate::types::{StreamId, BlockIndex, CheckBlockId};
 
 pub struct OnlineCoder {
     block_size: usize,
     epsilon: f64,
     q: usize,
+}
+
+pub struct BlockIter<'a> {
+    pub data: &'a [u8],
+    pub aux_data: Vec<u8>,
+    pub block_size: usize,
+    pub degree_distribution: WeightedIndex<f64>,
+    pub check_block_id: CheckBlockId,
+    pub stream_id: StreamId,
 }
 
 impl OnlineCoder {
@@ -108,6 +116,40 @@ impl OnlineCoder {
             }
         }
         mapping
+    }
+}
+
+impl<'a> Iterator for BlockIter<'a> {
+    type Item = Vec<u8>;
+    fn next(&mut self) -> Option<Vec<u8>> {
+        let num_blocks = self.data.len() / self.block_size;
+        let num_aux_blocks = self.aux_data.len() / self.block_size;
+        let mut check_block = vec![0; self.block_size];
+        let adjacent_blocks = get_adjacent_blocks(
+            self.check_block_id,
+            self.stream_id,
+            &self.degree_distribution,
+            num_blocks + num_aux_blocks,
+        );
+        for block_index in adjacent_blocks {
+            if block_index < num_blocks {
+                xor_block(
+                    &mut check_block,
+                    &self.data[block_index * self.block_size..],
+                    self.block_size,
+                );
+            } else {
+                // Aux block.
+                xor_block(
+                    &mut check_block,
+                    &self.aux_data[(block_index - num_blocks) * self.block_size..],
+                    self.block_size,
+                );
+            }
+        }
+
+        self.check_block_id += 1;
+        Some(check_block)
     }
 }
 
