@@ -1,4 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap};
+use rand::distributions::WeightedIndex;
+use crate::typedef::types::{StreamId, BlockIndex, CheckBlockId};
+use crate::util::helpers::{get_adjacent_blocks, xor_block};
 
 pub enum DecodeResult<'a> {
     Complete(Vec<u8>),
@@ -12,20 +15,20 @@ enum UndecodedDegree {
 }
 
 pub struct Decoder<'a> {
-    num_blocks: usize,
-    num_augmented_blocks: usize,
-    block_size: usize,
-    degree_distribution: WeightedIndex<f64>,
-    stream_id: StreamId,
-    unused_aux_block_adjacencies: HashMap<BlockIndex, (usize, Vec<BlockIndex>)>,
+    pub num_blocks: usize,
+    pub num_augmented_blocks: usize,
+    pub block_size: usize,
+    pub degree_distribution: WeightedIndex<f64>,
+    pub stream_id: StreamId,
+    pub unused_aux_block_adjacencies: HashMap<BlockIndex, (usize, Vec<BlockIndex>)>,
 
-    augmented_data: Vec<u8>,
-    blocks_decoded: Vec<bool>,
-    num_undecoded_data_blocks: usize,
-    unused_check_blocks: HashMap<CheckBlockId, (usize, &'a [u8])>,
-    adjacent_check_blocks: HashMap<BlockIndex, Vec<CheckBlockId>>,
-    decode_stack: Vec<(CheckBlockId, &'a [u8])>,
-    aux_decode_stack: Vec<(BlockIndex, Vec<BlockIndex>)>,
+    pub augmented_data: Vec<u8>,
+    pub blocks_decoded: Vec<bool>,
+    pub num_undecoded_data_blocks: usize,
+    pub unused_check_blocks: HashMap<CheckBlockId, (usize, &'a [u8])>,
+    pub adjacent_check_blocks: HashMap<BlockIndex, Vec<CheckBlockId>>,
+    pub decode_stack: Vec<(CheckBlockId, &'a [u8])>,
+    pub aux_decode_stack: Vec<(BlockIndex, Vec<BlockIndex>)>,
 }
 
 impl<'a> DecodeResult<'a> {

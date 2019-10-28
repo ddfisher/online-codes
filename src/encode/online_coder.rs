@@ -1,5 +1,10 @@
 use std::collections::HashMap;
 use rand::distributions::WeightedIndex;
+use rand_xoshiro::Xoshiro256StarStar;
+use crate::decode::decoder::Decoder;
+use crate::util::helpers::{sample_with_exclusive_repeats, xor_block, seed_block_rng};
+use crate::iter::block_iter::BlockIter;
+use crate::typedef::types::{StreamId, BlockIndex};
 
 pub struct OnlineCoder {
     block_size: usize,
