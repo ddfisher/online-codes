@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap};
 use rand::distributions::WeightedIndex;
-use crate::typedef::types::{StreamId, BlockIndex, CheckBlockId};
-use crate::util::helpers::{get_adjacent_blocks, xor_block};
+use crate::types::{StreamId, BlockIndex, CheckBlockId};
+use crate::util::{get_adjacent_blocks, xor_block};
 
 pub enum DecodeResult<'a> {
     Complete(Vec<u8>),
