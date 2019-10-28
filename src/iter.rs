@@ -1,7 +1,7 @@
 use rand::distributions::WeightedIndex;
 
-use crate::typedef::types::{StreamId, CheckBlockId};
-use crate::util::helpers::{get_adjacent_blocks, xor_block};
+use crate::types::{StreamId, CheckBlockId};
+use crate::util::{get_adjacent_blocks, xor_block};
 
 pub struct BlockIter<'a> {
     pub data: &'a [u8],
