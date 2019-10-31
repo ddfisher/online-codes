@@ -1,7 +1,7 @@
 extern crate online_codes;
 
 use online_codes::encode::OnlineCoder;
-use online_codes::types::CheckBlockId;
+use online_codes::types::StreamId;
 use proptest::prelude::*;
 use rand::{thread_rng, Rng};
 
@@ -14,7 +14,7 @@ proptest! {
         // We'll just see if we can encode <=> decode
         let buf = s.clone().into_bytes();
         let buf_len = buf.len();
-        let check_block_id = 0;
+        let stream_id = 0;
         // Not ideal but okay for now to make things work
         if buf_len > 4 {
             let block_size = buf_len/4;
@@ -23,7 +23,7 @@ proptest! {
             // I think we expect it to fail otherwise anyway?
             if buf_len % block_size == 0 {
                 // The real test is here
-                if let Some(foo) = check_encode_decode(buf.clone(), num_blocks, block_size, check_block_id) {
+                if let Some(foo) = check_encode_decode(buf.clone(), num_blocks, block_size, stream_id) {
                     println!("buf: {:?}", buf);
                     println!("foo: {:?}", foo);
                     println!();
@@ -40,18 +40,18 @@ proptest! {
     fn test_with_known_loss(s in ".*") {
         let buf = s.clone().into_bytes();
         let buf_len = buf.len();
-        let check_block_id = 0;
+        let stream_id = 0;
         if buf_len > 4 {
             let block_size = buf_len/4;
             let num_blocks = buf_len / block_size;
             if buf_len % block_size == 0 {
                 for loss in vec![0.1, 0.3, 0.5, 0.9] {
-                    if let Some((decoded, block_id, rand)) = check_encode_decode_with_loss(buf.clone(), num_blocks, block_size, check_block_id, loss) {
+                    if let Some((decoded, loss_counter, total_counter)) = check_encode_decode_with_loss(buf.clone(), num_blocks, block_size, stream_id, loss) {
                         // NOTE: I'm pretty sure the higher the loss, the higher the returned block_id
                         // (our counter) would be. Looking at the output below sort of justifies
                         // that as well, but we probably should have more thorough checks.
                         // There ARE inconsistencies though.
-                        println!("block_id: {:?}, rand: {:?}, loss: {:?}", block_id, rand, loss);
+                        println!("loss: {:?}, loss_counter: {:?}, total_counter: {:?}", loss, loss_counter, total_counter);
                         assert_eq!(decoded, buf);
                     }
                 }
@@ -65,10 +65,10 @@ fn check_encode_decode(
     buf: Vec<u8>,
     num_blocks: usize,
     block_size: usize,
-    check_block_id: CheckBlockId) -> Option<Vec<u8>> {
+    stream_id: StreamId) -> Option<Vec<u8>> {
     let coder = OnlineCoder::new(block_size);
-    let encoded = coder.encode(&buf, check_block_id);
-    let mut decoder = coder.decode(num_blocks, check_block_id);
+    let encoded = coder.encode(&buf, stream_id);
+    let mut decoder = coder.decode(num_blocks, stream_id);
 
     for (block_id, block) in encoded {
         match decoder.decode_block(block_id, &block) {
@@ -85,25 +85,32 @@ fn check_encode_decode_with_loss(
     buf: Vec<u8>,
     num_blocks: usize,
     block_size: usize,
-    check_block_id: CheckBlockId,
-    loss: f64) -> Option<(Vec<u8>, CheckBlockId, f64)> {
+    stream_id: StreamId,
+    loss: f64) -> Option<(Vec<u8>, StreamId, u32)> {
     let coder = OnlineCoder::new(block_size);
-    let encoded = coder.encode(&buf, check_block_id);
-    let mut decoder = coder.decode(num_blocks, check_block_id);
+    let encoded = coder.encode(&buf, stream_id);
+    let mut decoder = coder.decode(num_blocks, stream_id);
     let mut loss_rng = thread_rng();
 
+    let mut total_counter = 0;
+    let mut loss_counter = 0;
+
     for (block_id, block) in encoded {
+        total_counter += 1;
         // This basically just simulates not actually decoding the block
         // at hand randomly. Could do better here presumably?
-        let rand: f64 = loss_rng.gen();
+        let rand: f64 = loss_rng.gen::<f64>();
         if rand > loss {
             match decoder.decode_block(block_id, &block) {
-                None => continue,
+                None => {
+                    continue
+                }
                 Some(res) => {
-                    return Some((res, block_id, rand))
+                    return Some((res, loss_counter, total_counter))
                 }
             }
-
+        } else {
+            loss_counter += 1;
         }
 
     }
