@@ -53,7 +53,6 @@ impl OnlineCoder {
             unused_aux_block_adjacencies,
             degree_distribution: make_degree_distribution(self.epsilon),
             stream_id,
-
             augmented_data: vec![0; num_augmented_blocks * self.block_size],
             blocks_decoded: vec![false; num_augmented_blocks],
             num_undecoded_data_blocks: num_blocks,
