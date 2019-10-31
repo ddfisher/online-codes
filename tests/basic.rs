@@ -65,7 +65,8 @@ fn check_encode_decode(
     buf: Vec<u8>,
     num_blocks: usize,
     block_size: usize,
-    stream_id: StreamId) -> Option<Vec<u8>> {
+    stream_id: StreamId,
+) -> Option<Vec<u8>> {
     let coder = OnlineCoder::new(block_size);
     let encoded = coder.encode(&buf, stream_id);
     let mut decoder = coder.decode(num_blocks, stream_id);
@@ -73,9 +74,7 @@ fn check_encode_decode(
     for (block_id, block) in encoded {
         match decoder.decode_block(block_id, &block) {
             None => continue,
-            Some(res) => {
-                return Some(res)
-            }
+            Some(res) => return Some(res),
         }
     }
     None
@@ -86,7 +85,8 @@ fn check_encode_decode_with_loss(
     num_blocks: usize,
     block_size: usize,
     stream_id: StreamId,
-    loss: f64) -> Option<(Vec<u8>, StreamId, u32)> {
+    loss: f64,
+) -> Option<(Vec<u8>, StreamId, u32)> {
     let coder = OnlineCoder::new(block_size);
     let encoded = coder.encode(&buf, stream_id);
     let mut decoder = coder.decode(num_blocks, stream_id);
@@ -102,17 +102,12 @@ fn check_encode_decode_with_loss(
         let rand: f64 = loss_rng.gen::<f64>();
         if rand > loss {
             match decoder.decode_block(block_id, &block) {
-                None => {
-                    continue
-                }
-                Some(res) => {
-                    return Some((res, loss_counter, total_counter))
-                }
+                None => continue,
+                Some(res) => return Some((res, loss_counter, total_counter)),
             }
         } else {
             loss_counter += 1;
         }
-
     }
     None
 }

@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use crate::decode::Decoder;
+use crate::types::{BlockIndex, CheckBlockId, StreamId};
+use crate::util::{get_adjacent_blocks, sample_with_exclusive_repeats, seed_block_rng, xor_block};
 use rand::distributions::WeightedIndex;
 use rand_xoshiro::Xoshiro256StarStar;
-use crate::decode::Decoder;
-use crate::util::{sample_with_exclusive_repeats, xor_block, seed_block_rng, get_adjacent_blocks};
-use crate::types::{StreamId, BlockIndex, CheckBlockId};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct OnlineCoder {

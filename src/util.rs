@@ -1,8 +1,8 @@
-use std::collections::HashSet;
-use rand_xoshiro::Xoshiro256StarStar;
-use rand_core::SeedableRng;
+use crate::types::{BlockIndex, CheckBlockId, StreamId};
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
-use crate::types::{StreamId, CheckBlockId, BlockIndex};
+use rand_core::SeedableRng;
+use rand_xoshiro::Xoshiro256StarStar;
+use std::collections::HashSet;
 
 // TODO: optimize
 pub fn xor_block(dest: &mut [u8], src: &[u8], block_size: usize) {
