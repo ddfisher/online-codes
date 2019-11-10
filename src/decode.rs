@@ -1,5 +1,8 @@
 use crate::types::{BlockIndex, CheckBlockId, StreamId};
-use crate::util::{get_adjacent_blocks, xor_block};
+use crate::util::{
+    get_adjacent_blocks, get_aux_block_adjacencies, make_degree_distribution, num_aux_blocks,
+    xor_block,
+};
 use rand::distributions::WeightedIndex;
 use std::collections::{hash_map::Entry, HashMap};
 
@@ -23,7 +26,6 @@ pub struct Decoder {
     pub degree_distribution: WeightedIndex<f64>,
     pub stream_id: StreamId,
     pub unused_aux_block_adjacencies: HashMap<BlockIndex, (usize, Vec<BlockIndex>)>,
-
     pub augmented_data: Vec<u8>,
     pub blocks_decoded: Vec<bool>,
     pub num_undecoded_data_blocks: usize,
@@ -43,6 +45,38 @@ impl DecodeResult {
 }
 
 impl<'a> Decoder {
+    pub fn new(num_blocks: usize, block_size: usize, stream_id: StreamId) -> Decoder {
+        Self::with_parameters(num_blocks, block_size, stream_id, 0.01, 3)
+    }
+
+    pub fn with_parameters(
+        num_blocks: usize,
+        block_size: usize,
+        stream_id: StreamId,
+        epsilon: f64,
+        q: usize,
+    ) -> Decoder {
+        let num_aux_blocks = num_aux_blocks(num_blocks, epsilon, q);
+        let num_augmented_blocks = num_blocks + num_aux_blocks;
+        let unused_aux_block_adjacencies =
+            get_aux_block_adjacencies(stream_id, num_blocks, num_aux_blocks, q);
+        Decoder {
+            num_blocks,
+            num_augmented_blocks: num_augmented_blocks,
+            block_size: block_size,
+            unused_aux_block_adjacencies,
+            degree_distribution: make_degree_distribution(epsilon),
+            stream_id,
+            augmented_data: vec![0; num_augmented_blocks * block_size],
+            blocks_decoded: vec![false; num_augmented_blocks],
+            num_undecoded_data_blocks: num_blocks,
+            unused_check_blocks: HashMap::new(),
+            adjacent_check_blocks: HashMap::new(),
+            decode_stack: Vec::new(),
+            aux_decode_stack: Vec::new(),
+        }
+    }
+
     pub fn decode_block(
         &mut self,
         check_block_id: CheckBlockId,

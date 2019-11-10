@@ -1,5 +1,6 @@
 extern crate online_codes;
 
+use online_codes::decode::Decoder;
 use online_codes::encode::OnlineCoder;
 use online_codes::types::StreamId;
 use proptest::prelude::*;
@@ -69,7 +70,7 @@ fn check_encode_decode(
 ) -> Option<Vec<u8>> {
     let coder = OnlineCoder::new(block_size);
     let encoded = coder.encode(buf, stream_id);
-    let mut decoder = coder.decode(num_blocks, stream_id);
+    let mut decoder = Decoder::new(num_blocks, block_size, stream_id);
 
     for (block_id, block) in encoded {
         match decoder.decode_block(block_id, &block) {
@@ -89,7 +90,7 @@ fn check_encode_decode_with_loss(
 ) -> Option<(Vec<u8>, StreamId, u32)> {
     let coder = OnlineCoder::new(block_size);
     let encoded = coder.encode(buf, stream_id);
-    let mut decoder = coder.decode(num_blocks, stream_id);
+    let mut decoder = Decoder::new(num_blocks, block_size, stream_id);
     let mut loss_rng = thread_rng();
 
     let mut total_counter = 0;

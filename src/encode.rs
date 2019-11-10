@@ -1,8 +1,10 @@
 use crate::decode::Decoder;
-use crate::types::{BlockIndex, CheckBlockId, StreamId};
-use crate::util::{get_adjacent_blocks, sample_with_exclusive_repeats, seed_block_rng, xor_block};
+use crate::types::{CheckBlockId, StreamId};
+use crate::util::{
+    get_adjacent_blocks, get_aux_block_adjacencies, make_degree_distribution,
+    sample_with_exclusive_repeats, seed_stream_rng, xor_block,
+};
 use rand::distributions::WeightedIndex;
-use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -45,7 +47,7 @@ impl OnlineCoder {
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
         let num_augmented_blocks = num_blocks + num_aux_blocks;
         let unused_aux_block_adjacencies =
-            self.get_aux_block_adjacencies(stream_id, num_blocks, num_aux_blocks);
+            get_aux_block_adjacencies(stream_id, num_blocks, num_aux_blocks, self.q);
         Decoder {
             num_blocks,
             num_augmented_blocks: num_blocks + num_aux_blocks,
@@ -94,25 +96,6 @@ impl OnlineCoder {
             stream_id,
         }
     }
-
-    fn get_aux_block_adjacencies(
-        &self,
-        stream_id: StreamId,
-        num_blocks: usize,
-        num_auxiliary_blocks: usize,
-    ) -> HashMap<BlockIndex, (usize, Vec<BlockIndex>)> {
-        let mut mapping: HashMap<BlockIndex, (usize, Vec<BlockIndex>)> = HashMap::new();
-        let mut rng = seed_stream_rng(stream_id);
-        for i in 0..num_blocks {
-            for aux_index in sample_with_exclusive_repeats(&mut rng, num_auxiliary_blocks, self.q) {
-                // TODO: clean up a bit
-                let (num, ids) = &mut mapping.entry(aux_index + num_blocks).or_default();
-                *num += 1;
-                ids.push(i);
-            }
-        }
-        mapping
-    }
 }
 
 impl Iterator for BlockIter {
@@ -147,22 +130,4 @@ impl Iterator for BlockIter {
         self.check_block_id += 1;
         Some((self.check_block_id - 1, check_block))
     }
-}
-
-fn make_degree_distribution(epsilon: f64) -> WeightedIndex<f64> {
-    // See section 3.2 of the Maymounkov-Mazières paper.
-    let f = ((f64::ln(epsilon * epsilon / 4.0)) / f64::ln(1.0 - epsilon / 2.0)).ceil() as usize;
-    let mut p = Vec::with_capacity(f);
-    let p1 = 1.0 - ((1.0 + 1.0 / f as f64) / (1.0 + epsilon));
-    p.push(p1);
-    // Extracted unchanging constant from p_i's.
-    let c = (1.0 - p1) * f as f64 / (f - 1) as f64;
-    for i in 2..=f {
-        p.push(c / (i * (i - 1)) as f64);
-    }
-    WeightedIndex::new(&p).expect("serious probability calculation error")
-}
-
-fn seed_stream_rng(stream_id: StreamId) -> Xoshiro256StarStar {
-    seed_block_rng(stream_id, 0)
 }
