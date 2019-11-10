@@ -13,8 +13,8 @@ pub struct OnlineCoder {
 }
 
 #[derive(Debug)]
-pub struct BlockIter<'a> {
-    pub data: &'a [u8],
+pub struct BlockIter {
+    pub data: Vec<u8>,
     pub aux_data: Vec<u8>,
     pub block_size: usize,
     pub degree_distribution: WeightedIndex<f64>,
@@ -35,13 +35,13 @@ impl OnlineCoder {
         }
     }
 
-    pub fn encode<'a>(&self, data: &'a [u8], stream_id: StreamId) -> BlockIter<'a> {
+    pub fn encode(&self, data: Vec<u8>, stream_id: StreamId) -> BlockIter {
         assert!(data.len() % self.block_size == 0);
-        let aux_data = self.outer_encode(data, stream_id);
+        let aux_data = self.outer_encode(&data, stream_id);
         self.inner_encode(data, aux_data, stream_id)
     }
 
-    pub fn decode<'a>(&self, num_blocks: usize, stream_id: StreamId) -> Decoder {
+    pub fn decode(&self, num_blocks: usize, stream_id: StreamId) -> Decoder {
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
         let num_augmented_blocks = num_blocks + num_aux_blocks;
         let unused_aux_block_adjacencies =
@@ -84,12 +84,12 @@ impl OnlineCoder {
         aux_data
     }
 
-    fn inner_encode<'a>(
+    fn inner_encode(
         &self,
-        data: &'a [u8],
+        data: Vec<u8>,
         aux_data: Vec<u8>,
         stream_id: StreamId,
-    ) -> BlockIter<'a> {
+    ) -> BlockIter {
         BlockIter {
             data,
             aux_data,
@@ -120,7 +120,7 @@ impl OnlineCoder {
     }
 }
 
-impl<'a> Iterator for BlockIter<'a> {
+impl Iterator for BlockIter {
     type Item = (CheckBlockId, Vec<u8>);
     fn next(&mut self) -> Option<(CheckBlockId, Vec<u8>)> {
         let num_blocks = self.data.len() / self.block_size;
