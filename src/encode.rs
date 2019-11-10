@@ -84,12 +84,7 @@ impl OnlineCoder {
         aux_data
     }
 
-    fn inner_encode(
-        &self,
-        data: Vec<u8>,
-        aux_data: Vec<u8>,
-        stream_id: StreamId,
-    ) -> BlockIter {
+    fn inner_encode(&self, data: Vec<u8>, aux_data: Vec<u8>, stream_id: StreamId) -> BlockIter {
         BlockIter {
             data,
             aux_data,

@@ -6,7 +6,7 @@ use std::collections::{hash_map::Entry, HashMap};
 #[derive(Debug)]
 pub enum DecodeResult {
     Complete(Vec<u8>),
-    InProgress(Box<Decoder>)
+    InProgress(Box<Decoder>),
 }
 
 enum UndecodedDegree {
