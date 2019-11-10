@@ -6,7 +6,7 @@ use std::collections::{hash_map::Entry, HashMap};
 #[derive(Debug)]
 pub enum DecodeResult {
     Complete(Vec<u8>),
-    InProgress(Decoder),
+    InProgress(Box<Decoder>),
 }
 
 enum UndecodedDegree {
@@ -15,7 +15,7 @@ enum UndecodedDegree {
     Many(usize),     // number of blocks that haven't yet been decoded
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Decoder {
     pub num_blocks: usize,
     pub num_augmented_blocks: usize,
@@ -148,7 +148,7 @@ impl<'a> Decoder {
         }
     }
 
-    pub fn from_iter<T>(mut self, iter: T) -> DecodeResult
+    pub fn into_iter<T>(mut self, iter: T) -> DecodeResult
     where
         T: IntoIterator<Item = (CheckBlockId, &'a [u8])>,
     {
@@ -157,7 +157,7 @@ impl<'a> Decoder {
                 return DecodeResult::Complete(decoded_data);
             }
         }
-        DecodeResult::InProgress(self)
+        DecodeResult::InProgress(Box::new(self))
     }
 
     pub fn get_incomplete_result(&self) -> (&[bool], &[u8]) {

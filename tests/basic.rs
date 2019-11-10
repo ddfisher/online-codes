@@ -68,7 +68,7 @@ fn check_encode_decode(
     stream_id: StreamId,
 ) -> Option<Vec<u8>> {
     let coder = OnlineCoder::new(block_size);
-    let encoded = coder.encode(&buf, stream_id);
+    let encoded = coder.encode(buf, stream_id);
     let mut decoder = coder.decode(num_blocks, stream_id);
 
     for (block_id, block) in encoded {
@@ -88,7 +88,7 @@ fn check_encode_decode_with_loss(
     loss: f64,
 ) -> Option<(Vec<u8>, StreamId, u32)> {
     let coder = OnlineCoder::new(block_size);
-    let encoded = coder.encode(&buf, stream_id);
+    let encoded = coder.encode(buf, stream_id);
     let mut decoder = coder.decode(num_blocks, stream_id);
     let mut loss_rng = thread_rng();
 
