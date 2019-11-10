@@ -15,7 +15,7 @@ enum UndecodedDegree {
     Many(usize),     // number of blocks that haven't yet been decoded
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Decoder {
     pub num_blocks: usize,
     pub num_augmented_blocks: usize,

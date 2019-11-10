@@ -5,14 +5,14 @@ use rand::distributions::WeightedIndex;
 use rand_xoshiro::Xoshiro256StarStar;
 use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct OnlineCoder {
     block_size: usize,
     epsilon: f64,
     q: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BlockIter {
     pub data: Vec<u8>,
     pub aux_data: Vec<u8>,
