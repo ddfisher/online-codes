@@ -62,8 +62,8 @@ impl<'a> Decoder {
             get_aux_block_adjacencies(stream_id, num_blocks, num_aux_blocks, q);
         Decoder {
             num_blocks,
-            num_augmented_blocks: num_augmented_blocks,
-            block_size: block_size,
+            num_augmented_blocks,
+            block_size,
             unused_aux_block_adjacencies,
             degree_distribution: make_degree_distribution(epsilon),
             stream_id,
