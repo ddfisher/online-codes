@@ -17,3 +17,6 @@ exclude = [
 rand = "0.6"
 rand_core = "0.3"
 rand_xoshiro = "0.1"
+
+[dev-dependencies]
+proptest = "0.9.4"
