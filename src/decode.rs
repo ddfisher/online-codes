@@ -173,7 +173,7 @@ impl<'a> Decoder {
 
         if self.num_undecoded_data_blocks == 0 {
             // Decoding finished -- return decoded data.
-            let mut decoded_data = std::mem::replace(&mut self.augmented_data, Vec::new());
+            let mut decoded_data = std::mem::take(&mut self.augmented_data);
             decoded_data.truncate(self.block_size * self.num_blocks);
             Some(decoded_data)
         } else {
