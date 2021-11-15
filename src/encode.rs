@@ -56,7 +56,7 @@ impl OnlineCoder {
     }
 
     fn num_aux_blocks(&self, num_blocks: usize) -> usize {
-        (0.55f64 * self.q as f64 * self.epsilon * num_blocks as f64).ceil() as usize
+        (0.55_f64 * self.q as f64 * self.epsilon * num_blocks as f64).ceil() as usize
     }
 
     fn outer_encode(&self, data: &[u8], stream_id: StreamId) -> Vec<u8> {
