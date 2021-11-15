@@ -14,6 +14,7 @@ mod util;
 // TODO: profile and fix low-hanging fruit
 // TODO: write docs
 
+#[derive(Clone)]
 pub struct Encoder {
     // NOTE: BlockIter MUST not leak, maybe put in a Box?
     block_iter: BlockIter,
