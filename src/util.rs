@@ -50,7 +50,7 @@ pub fn seed_stream_rng(stream_id: StreamId) -> Xoshiro256StarStar {
 }
 
 pub fn num_aux_blocks(num_blocks: usize, epsilon: f64, q: usize) -> usize {
-    (0.55f64 * q as f64 * epsilon * num_blocks as f64).ceil() as usize
+    (0.55_f64 * q as f64 * epsilon * num_blocks as f64).ceil() as usize
 }
 
 pub fn get_aux_block_adjacencies(
