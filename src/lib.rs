@@ -2,7 +2,7 @@ use block_iter::BlockIter;
 use decode::Decoder;
 
 mod block_iter;
-mod decode;
+pub mod decode;
 mod encode;
 pub mod types;
 mod util;
