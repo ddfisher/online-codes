@@ -42,6 +42,5 @@ pub fn next_block(encoder: &mut Encoder) -> Option<Block> {
 }
 
 pub fn decode_block(block: Block, decoder: &mut Decoder) -> Option<Vec<u8>> {
-    println!("incomplete_result: {:?}", decoder.get_incomplete_result());
     decoder.decode_block(block.0, &block.1)
 }
