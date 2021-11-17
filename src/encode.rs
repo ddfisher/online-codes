@@ -33,7 +33,7 @@ impl OnlineCoder {
         self.inner_encode(data, aux_data, stream_id)
     }
 
-    pub fn decode(&self, num_blocks: usize, stream_id: StreamId) -> Decoder {
+    fn decode(&self, num_blocks: usize, stream_id: StreamId) -> Decoder {
         let num_aux_blocks = self.num_aux_blocks(num_blocks);
         let num_augmented_blocks = num_blocks + num_aux_blocks;
         let unused_aux_block_adjacencies =

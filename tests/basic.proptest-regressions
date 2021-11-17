@@ -6,3 +6,5 @@
 # everyone who runs the test benefits from these saved cases.
 cc d1db460bd8c4f898ccdd24f069136e875c86fb1d6630e1a09571bbf89d1f662b # shrinks to s = ""
 cc 0fd5fd9afb0824aa64dfdbabaacca4c4b39e2ab214fa492633b518123690f42a # shrinks to s = "AaA0 aA0 a\u{b}0a"
+cc 9a6750e79d587953c3b8d4f03e0ccfcee0d2a0b4c1856f4d2217868b65e1415e # shrinks to s = "𐀀0"
+cc f536ba08ff97bccb16a378bb1f2a7e513f0b2e4e5eef3203fddff29765391af2 # shrinks to s = "a\u{b}a¡0\u{b}𐀀\u{0}\u{b}00"

@@ -22,19 +22,14 @@ pub struct Encoder {
 
 pub type Block = (u64, Vec<u8>);
 
-// TODO: Should encode/1 return something else?
-pub fn encode(buf: Vec<u8>) -> (Encoder, Decoder) {
-    let buf_len = buf.len();
-    let block_size = buf_len / 4;
-    let stream_id = 0;
-
+pub fn new_encoder(buf: Vec<u8>, block_size: usize, stream_id: u64) -> Encoder {
     let coder = encode::OnlineCoder::new(block_size);
     let block_iter = coder.encode(buf, stream_id);
+    Encoder { block_iter }
+}
 
-    (
-        Encoder { block_iter },
-        coder.decode(buf_len / block_size, stream_id),
-    )
+pub fn new_decoder(buf_len: usize, block_size: usize, stream_id: u64) -> Decoder {
+    Decoder::new(buf_len / block_size, block_size, stream_id)
 }
 
 pub fn next_block(encoder: &mut Encoder) -> Option<Block> {
