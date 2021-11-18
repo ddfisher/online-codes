@@ -60,8 +60,8 @@ fn check_encode_decode(buf: Vec<u8>) -> Option<Vec<u8>> {
     println!("buffer: {:?}", buf);
 
     let buf_len = buf.len();
-    let mut encoder = new_encoder(buf.clone(), buf_len / 4, 0);
-    let mut decoder = new_decoder(buf_len, buf_len / 4, 0);
+    let mut encoder = new_encoder(buf.clone(), 3, 0);
+    let mut decoder = new_decoder(buf_len, 3, 0);
 
     // TODO: Should we put a limit or loop infinitely?
     loop {
@@ -86,8 +86,8 @@ fn check_encode_decode_with_loss(buf: Vec<u8>, loss: f64) -> Option<(Vec<u8>, St
 
     println!("buffer: {:?}", buf);
     let buf_len = buf.len();
-    let mut encoder = new_encoder(buf.clone(), buf_len / 4, 0);
-    let mut decoder = new_decoder(buf_len, buf_len / 4, 0);
+    let mut encoder = new_encoder(buf.clone(), 4, 0);
+    let mut decoder = new_decoder(buf_len, 4, 0);
 
     // TODO: Should we put a limit or loop infinitely?
     loop {
