@@ -1,11 +1,8 @@
 use crate::block_iter::BlockIter;
-use crate::decode::Decoder;
 use crate::types::StreamId;
 use crate::util::{
-    get_aux_block_adjacencies, make_degree_distribution, sample_with_exclusive_repeats,
-    seed_stream_rng, xor_block,
+    make_degree_distribution, sample_with_exclusive_repeats, seed_stream_rng, xor_block,
 };
-use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct OnlineCoder {
@@ -28,31 +25,8 @@ impl OnlineCoder {
     }
 
     pub fn encode(&self, data: Vec<u8>, stream_id: StreamId) -> BlockIter {
-        assert!(data.len() % self.block_size == 0);
         let aux_data = self.outer_encode(&data, stream_id);
         self.inner_encode(data, aux_data, stream_id)
-    }
-
-    pub fn decode(&self, num_blocks: usize, stream_id: StreamId) -> Decoder {
-        let num_aux_blocks = self.num_aux_blocks(num_blocks);
-        let num_augmented_blocks = num_blocks + num_aux_blocks;
-        let unused_aux_block_adjacencies =
-            get_aux_block_adjacencies(stream_id, num_blocks, num_aux_blocks, self.q);
-        Decoder {
-            num_blocks,
-            num_augmented_blocks: num_blocks + num_aux_blocks,
-            block_size: self.block_size,
-            unused_aux_block_adjacencies,
-            degree_distribution: make_degree_distribution(self.epsilon),
-            stream_id,
-            augmented_data: vec![0; num_augmented_blocks * self.block_size],
-            blocks_decoded: vec![false; num_augmented_blocks],
-            num_undecoded_data_blocks: num_blocks,
-            unused_check_blocks: HashMap::new(),
-            adjacent_check_blocks: HashMap::new(),
-            decode_stack: Vec::new(),
-            aux_decode_stack: Vec::new(),
-        }
     }
 
     fn num_aux_blocks(&self, num_blocks: usize) -> usize {
