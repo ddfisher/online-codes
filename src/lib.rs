@@ -26,9 +26,12 @@ pub type Block = (CheckBlockId, Vec<u8>);
 pub fn new_encoder(mut buf: Vec<u8>, block_size: usize, stream_id: StreamId) -> Encoder {
     let len = buf.len();
     let rem = len % block_size;
-    let pad: i64 = block_size as i64 - rem as i64;
-    buf.resize_with(len + pad.abs() as usize, || 0);
-
+    let pad: usize = match rem {
+        0 => 0,
+        r => block_size - r,
+    };
+    assert!(pad < block_size);
+    buf.resize_with(len + pad, || 0);
     let coder = encode::OnlineCoder::new(block_size);
     let block_iter = coder.encode(buf, stream_id);
     Encoder { block_iter }
@@ -37,13 +40,12 @@ pub fn new_encoder(mut buf: Vec<u8>, block_size: usize, stream_id: StreamId) -> 
 pub fn new_decoder(buf_len: usize, block_size: usize, stream_id: StreamId) -> Decoder {
     let len = buf_len;
     let rem = len % block_size;
-    let pad: i64 = (block_size as i64 - rem as i64).abs();
-    Decoder::new(
-        (buf_len + pad as usize) / block_size,
-        block_size,
-        stream_id,
-        Some(pad),
-    )
+    let pad: usize = match rem {
+        0 => 0,
+        r => block_size - r,
+    };
+    assert!(pad < block_size);
+    Decoder::new((buf_len + pad) / block_size, block_size, stream_id, pad)
 }
 
 pub fn next_block(encoder: &mut Encoder) -> Option<Block> {
@@ -52,14 +54,12 @@ pub fn next_block(encoder: &mut Encoder) -> Option<Block> {
 
 pub fn decode_block(block: Block, decoder: &mut Decoder) -> Option<Vec<u8>> {
     match decoder.decode_block(block.0, &block.1) {
-        Some(mut block) => match decoder.pad {
-            Some(pad) => {
-                let len = block.len();
-                block.resize(len - pad as usize, 0);
-                Some(block)
-            }
-            None => Some(block),
-        },
+        Some(mut block) => {
+            let pad = decoder.pad;
+            let len = block.len();
+            block.resize(len - pad as usize, 0);
+            Some(block)
+        }
         None => None,
     }
 }

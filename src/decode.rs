@@ -33,7 +33,7 @@ pub struct Decoder {
     pub adjacent_check_blocks: HashMap<BlockIndex, Vec<CheckBlockId>>,
     pub decode_stack: Vec<(CheckBlockId, Vec<u8>)>,
     pub aux_decode_stack: Vec<(BlockIndex, Vec<BlockIndex>)>,
-    pub pad: Option<i64>,
+    pub pad: usize,
 }
 
 impl DecodeResult {
@@ -46,12 +46,7 @@ impl DecodeResult {
 }
 
 impl<'a> Decoder {
-    pub fn new(
-        num_blocks: usize,
-        block_size: usize,
-        stream_id: StreamId,
-        pad: Option<i64>,
-    ) -> Decoder {
+    pub fn new(num_blocks: usize, block_size: usize, stream_id: StreamId, pad: usize) -> Decoder {
         Self::with_parameters(num_blocks, block_size, stream_id, 0.01, 3, pad)
     }
 
@@ -61,7 +56,7 @@ impl<'a> Decoder {
         stream_id: StreamId,
         epsilon: f64,
         q: usize,
-        pad: Option<i64>,
+        pad: usize,
     ) -> Decoder {
         let num_aux_blocks = num_aux_blocks(num_blocks, epsilon, q);
         let num_augmented_blocks = num_blocks + num_aux_blocks;
