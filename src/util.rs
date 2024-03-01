@@ -1,8 +1,8 @@
-use std::collections::HashSet;
-use rand_xoshiro::Xoshiro256StarStar;
-use rand_core::SeedableRng;
+use crate::types::{BlockIndex, CheckBlockId, StreamId};
 use rand::distributions::{Distribution, Uniform, WeightedIndex};
-use crate::types::{StreamId, CheckBlockId, BlockIndex};
+use rand_core::SeedableRng;
+use rand_xoshiro::Xoshiro256StarStar;
+use std::collections::{HashMap, HashSet};
 
 // TODO: optimize
 pub fn xor_block(dest: &mut [u8], src: &[u8], block_size: usize) {
@@ -42,5 +42,46 @@ pub fn sample_with_exclusive_repeats(
         }
     }
 
-    return selected.into_iter().collect();
+    selected.into_iter().collect()
+}
+
+pub fn seed_stream_rng(stream_id: StreamId) -> Xoshiro256StarStar {
+    seed_block_rng(stream_id, 0)
+}
+
+pub fn num_aux_blocks(num_blocks: usize, epsilon: f64, q: usize) -> usize {
+    (0.55_f64 * q as f64 * epsilon * num_blocks as f64).ceil() as usize
+}
+
+pub fn get_aux_block_adjacencies(
+    stream_id: StreamId,
+    num_blocks: usize,
+    num_auxiliary_blocks: usize,
+    q: usize,
+) -> HashMap<BlockIndex, (usize, Vec<BlockIndex>)> {
+    let mut mapping: HashMap<BlockIndex, (usize, Vec<BlockIndex>)> = HashMap::new();
+    let mut rng = seed_stream_rng(stream_id);
+    for i in 0..num_blocks {
+        for aux_index in sample_with_exclusive_repeats(&mut rng, num_auxiliary_blocks, q) {
+            // TODO: clean up a bit
+            let (num, ids) = &mut mapping.entry(aux_index + num_blocks).or_default();
+            *num += 1;
+            ids.push(i);
+        }
+    }
+    mapping
+}
+
+pub fn make_degree_distribution(epsilon: f64) -> WeightedIndex<f64> {
+    // See section 3.2 of the Maymounkov-Mazières paper.
+    let f = ((f64::ln(epsilon * epsilon / 4.0)) / f64::ln(1.0 - epsilon / 2.0)).ceil() as usize;
+    let mut p = Vec::with_capacity(f);
+    let p1 = 1.0 - ((1.0 + 1.0 / f as f64) / (1.0 + epsilon));
+    p.push(p1);
+    // Extracted unchanging constant from p_i's.
+    let c = (1.0 - p1) * f as f64 / (f - 1) as f64;
+    for i in 2..=f {
+        p.push(c / (i * (i - 1)) as f64);
+    }
+    WeightedIndex::new(&p).expect("serious probability calculation error")
 }
